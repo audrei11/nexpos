@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   TrendingUp, TrendingDown, ShoppingCart, Package,
-  Users, DollarSign, ArrowUpRight, ArrowDownRight,
-  MoreHorizontal, Eye, Clock, ChevronRight,
-  Activity, Boxes
+  DollarSign,
+  Clock, ChevronRight,
+  Activity, Boxes, FlaskConical
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -13,8 +13,10 @@ import {
 } from 'recharts'
 import { Header } from '@/components/layout/header'
 import { Badge } from '@/components/ui/badge'
-import { cn, formatCurrency, formatTime } from '@/lib/utils'
-import { REVENUE_DATA, RECENT_ORDERS, TOP_PRODUCTS, PRODUCTS } from '@/lib/mock-data'
+import { cn, formatCurrency, formatDateTime } from '@/lib/utils'
+import { useProducts } from '@/lib/products-context'
+import { useTransactions } from '@/lib/transactions-context'
+import { useIngredients } from '@/lib/ingredients-context'
 import Link from 'next/link'
 
 // ─── Stat Card ────────────────────────────────────────────────────────────
@@ -101,11 +103,97 @@ const paymentConfig = {
   credit: { label: 'Credit', icon: '🏦' },
 }
 
+type TxPeriod = 'today' | '7d' | '30d' | '90d'
+
+function getTxPeriodStart(period: TxPeriod): Date {
+  const d = new Date()
+  if (period === 'today') {
+    d.setHours(0, 0, 0, 0)
+  } else {
+    d.setDate(d.getDate() - (period === '7d' ? 6 : period === '30d' ? 29 : 89))
+    d.setHours(0, 0, 0, 0)
+  }
+  return d
+}
+
 export default function DashboardPage() {
   const [chartPeriod, setChartPeriod] = useState<'7d' | '30d' | '90d'>('7d')
+  const [txPeriod, setTxPeriod] = useState<TxPeriod>('today')
+  const { products } = useProducts()
+  const { transactions } = useTransactions()
+  const { ingredients } = useIngredients()
 
-  const lowStockProducts = PRODUCTS.filter(p => p.stock <= (p.minStock ?? 5) && p.stock > 0)
-  const outOfStockProducts = PRODUCTS.filter(p => p.stock === 0)
+  const filteredTx = useMemo(() => {
+    const start = getTxPeriodStart(txPeriod)
+    return transactions
+      .filter(tx => tx.status === 'completed' && new Date(tx.createdAt) >= start)
+      .slice(0, 20)
+  }, [transactions, txPeriod])
+
+  const lowStockProducts   = products.filter(p => p.stock <= (p.minStock ?? 5) && p.stock > 0)
+  const outOfStockProducts = products.filter(p => p.stock === 0)
+  const lowIngredients     = ingredients.filter(i => i.stock > 0 && i.stock <= i.minStock)
+  const outOfIngredients   = ingredients.filter(i => i.stock === 0)
+
+  // ── Today KPIs (computed from live transactions) ─────────────────────
+  const kpis = useMemo(() => {
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+    const yestStart  = new Date(todayStart); yestStart.setDate(yestStart.getDate() - 1)
+    const todayTx = transactions.filter(
+      tx => tx.status === 'completed' && new Date(tx.createdAt) >= todayStart
+    )
+    const yestTx = transactions.filter(tx => {
+      const d = new Date(tx.createdAt)
+      return tx.status === 'completed' && d >= yestStart && d < todayStart
+    })
+    const todayRev = todayTx.reduce((s, tx) => s + tx.total, 0)
+    const yestRev  = yestTx.reduce((s, tx) => s + tx.total, 0)
+    const todayOrd = todayTx.length
+    const yestOrd  = yestTx.length
+    const todayAvg = todayOrd > 0 ? todayRev / todayOrd : 0
+    const yestAvg  = yestOrd  > 0 ? yestRev  / yestOrd  : 0
+    const pct = (a: number, b: number) => b > 0 ? Math.round(((a - b) / b) * 100) : 0
+    return {
+      revenue: todayRev, revenueChange: pct(todayRev, yestRev), yestRevenue: yestRev,
+      orders:  todayOrd, ordersChange:  pct(todayOrd, yestOrd), yestOrders:  yestOrd,
+      avg:     todayAvg, avgChange:     pct(todayAvg, yestAvg), yestAvg,
+    }
+  }, [transactions])
+
+  // ── Revenue chart data ────────────────────────────────────────────────
+  const chartData = useMemo(() => {
+    const days = chartPeriod === '7d' ? 7 : chartPeriod === '30d' ? 30 : 90
+    return Array.from({ length: days }, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - (days - 1 - i)); d.setHours(0, 0, 0, 0)
+      const dayEnd = new Date(d); dayEnd.setDate(dayEnd.getDate() + 1)
+      const rev = transactions
+        .filter(tx => tx.status === 'completed')
+        .filter(tx => { const t = new Date(tx.createdAt); return t >= d && t < dayEnd })
+        .reduce((s, tx) => s + tx.total, 0)
+      return { date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), revenue: rev }
+    })
+  }, [transactions, chartPeriod])
+
+  // ── Top products by revenue ───────────────────────────────────────────
+  const topProducts = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; emoji: string; units: number; revenue: number }>()
+    transactions.filter(tx => tx.status === 'completed').forEach(tx => {
+      tx.items.forEach(item => {
+        const cur = map.get(item.productId)
+        if (cur) {
+          cur.units   += item.quantity
+          cur.revenue += item.total
+        } else {
+          const prod = products.find(p => p.id === item.productId)
+          map.set(item.productId, {
+            id: item.productId, name: item.productName,
+            emoji: prod?.emoji ?? '📦', units: item.quantity, revenue: item.total,
+          })
+        }
+      })
+    })
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 5)
+  }, [transactions, products])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -125,32 +213,30 @@ export default function DashboardPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         {/* Stats Row */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
           <StatCard
             title="Today's Revenue"
-            value={formatCurrency(5890).replace('$', '')}
-            change={+12.4}
-            changeLabel="vs yesterday $5,240"
+            value={formatCurrency(kpis.revenue)}
+            change={kpis.revenueChange}
+            changeLabel={`vs yesterday ${formatCurrency(kpis.yestRevenue)}`}
             icon={DollarSign}
             accent="indigo"
-            prefix="$"
           />
           <StatCard
             title="Orders Today"
-            value={52}
-            change={+8.2}
-            changeLabel="vs yesterday 48 orders"
+            value={kpis.orders}
+            change={kpis.ordersChange}
+            changeLabel={`vs yesterday ${kpis.yestOrders} order${kpis.yestOrders !== 1 ? 's' : ''}`}
             icon={ShoppingCart}
             accent="emerald"
           />
           <StatCard
             title="Avg Order Value"
-            value={formatCurrency(113.27).replace('$', '')}
-            change={+3.8}
-            changeLabel="vs yesterday $109.15"
+            value={formatCurrency(kpis.avg)}
+            change={kpis.avgChange}
+            changeLabel={`vs yesterday ${formatCurrency(kpis.yestAvg)}`}
             icon={Activity}
             accent="violet"
-            prefix="$"
           />
           <StatCard
             title="Low Stock Items"
@@ -160,6 +246,22 @@ export default function DashboardPage() {
             icon={Boxes}
             accent="amber"
           />
+          <StatCard
+            title="Low Ingredients"
+            value={lowIngredients.length}
+            change={0}
+            changeLabel={`${outOfIngredients.length} out of stock`}
+            icon={FlaskConical}
+            accent="violet"
+          />
+          <StatCard
+            title="Out of Ingredients"
+            value={outOfIngredients.length}
+            change={0}
+            changeLabel="Needs restocking"
+            icon={FlaskConical}
+            accent="rose"
+          />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
@@ -168,7 +270,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h3 className="text-base font-semibold text-surface-900">Revenue Overview</h3>
-                <p className="text-sm text-surface-500 mt-0.5">Daily revenue for the last 7 days</p>
+                <p className="text-sm text-surface-500 mt-0.5">Daily revenue · last {chartPeriod === '7d' ? '7 days' : chartPeriod === '30d' ? '30 days' : '90 days'}</p>
               </div>
               <div className="flex items-center gap-1 rounded-xl border border-surface-200 p-1">
                 {(['7d', '30d', '90d'] as const).map(p => (
@@ -188,7 +290,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={REVENUE_DATA} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#6366F1" stopOpacity={0.25} />
@@ -206,7 +308,7 @@ export default function DashboardPage() {
                   tick={{ fontSize: 11, fill: '#94A3B8' }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={v => `$${(v / 1000).toFixed(0)}k`}
+                  tickFormatter={v => `₱${(v / 1000).toFixed(0)}k`}
                 />
                 <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#6366F1', strokeWidth: 1, strokeDasharray: '4 4' }} />
                 <Area
@@ -229,81 +331,114 @@ export default function DashboardPage() {
               <button className="text-xs text-brand-600 font-semibold hover:underline">See all</button>
             </div>
             <div className="space-y-3">
-              {TOP_PRODUCTS.map((p, idx) => (
-                <div key={p.id} className="flex items-center gap-3 group">
-                  <span className="text-xs font-bold text-surface-300 w-4 flex-shrink-0">
-                    {idx + 1}
-                  </span>
-                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-surface-50 text-lg group-hover:bg-brand-50 transition-colors">
-                    {p.emoji}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-surface-800 truncate">{p.name}</p>
-                    <p className="text-xs text-surface-400">{p.units} units sold</p>
-                  </div>
-                  <span className="text-sm font-bold text-surface-900 num-display flex-shrink-0">
-                    {formatCurrency(p.revenue)}
-                  </span>
+              {topProducts.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-8 text-surface-400">
+                  <Package className="h-8 w-8 opacity-30" />
+                  <p className="text-sm">No sales data yet</p>
                 </div>
-              ))}
+              ) : (
+                topProducts.map((p, idx) => (
+                  <div key={p.id} className="flex items-center gap-3 group">
+                    <span className="text-xs font-bold text-surface-300 w-4 flex-shrink-0">
+                      {idx + 1}
+                    </span>
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-surface-50 text-lg group-hover:bg-brand-50 transition-colors">
+                      {p.emoji}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-surface-800 truncate">{p.name}</p>
+                      <p className="text-xs text-surface-400">{p.units} units sold</p>
+                    </div>
+                    <span className="text-sm font-bold text-surface-900 num-display flex-shrink-0">
+                      {formatCurrency(p.revenue)}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          {/* Recent Orders — 2/3 */}
+          {/* Recent Transactions — 2/3 */}
           <div className="xl:col-span-2 bg-white rounded-2xl border border-surface-100 shadow-card">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
+            {/* Header + period filter */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100 gap-3 flex-wrap">
               <div>
-                <h3 className="text-base font-semibold text-surface-900">Recent Orders</h3>
-                <p className="text-xs text-surface-500 mt-0.5">Latest transactions from today</p>
+                <h3 className="text-base font-semibold text-surface-900">Recent Transactions</h3>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {filteredTx.length} sale{filteredTx.length !== 1 ? 's' : ''} in selected period
+                </p>
               </div>
-              <Link
-                href="/dashboard/reports"
-                className="flex items-center gap-1 text-xs text-brand-600 font-semibold hover:underline"
-              >
-                View all <ChevronRight className="h-3 w-3" />
-              </Link>
-            </div>
-            <div className="divide-y divide-surface-50">
-              {RECENT_ORDERS.map(order => {
-                const status = statusConfig[order.status]
-                const payment = paymentConfig[order.paymentMethod]
-                return (
-                  <div key={order.id} className="flex items-center gap-4 px-6 py-3.5 hover:bg-surface-50 transition-colors group">
-                    {/* Order # */}
-                    <div className="flex-shrink-0 min-w-[88px]">
-                      <p className="text-sm font-semibold text-surface-900">{order.orderNumber}</p>
-                      <p className="text-xs text-surface-400 flex items-center gap-1 mt-0.5">
-                        <Clock className="h-3 w-3" />
-                        {formatTime(order.createdAt)}
-                      </p>
-                    </div>
-                    {/* Customer */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-surface-700 truncate">
-                        {order.customerName ?? 'Walk-in Customer'}
-                      </p>
-                      <p className="text-xs text-surface-400">{order.items.length} item{order.items.length !== 1 ? 's' : ''}</p>
-                    </div>
-                    {/* Payment */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <span className="text-base leading-none">{payment.icon}</span>
-                      <span className="text-xs text-surface-500">{payment.label}</span>
-                    </div>
-                    {/* Status */}
-                    <Badge variant={status.variant} size="sm">{status.label}</Badge>
-                    {/* Total */}
-                    <span className="text-sm font-bold text-surface-900 num-display flex-shrink-0 min-w-[64px] text-right">
-                      {formatCurrency(order.total)}
-                    </span>
-                    {/* Action */}
-                    <button className="flex h-7 w-7 items-center justify-center rounded-lg text-surface-300 opacity-0 group-hover:opacity-100 transition-all hover:bg-surface-100 hover:text-surface-600">
-                      <Eye className="h-3.5 w-3.5" />
+              <div className="flex items-center gap-2">
+                {/* Period toggle */}
+                <div className="flex items-center gap-0.5 rounded-lg border border-surface-200 bg-surface-50 p-0.5">
+                  {(['today', '7d', '30d', '90d'] as const).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setTxPeriod(p)}
+                      className={cn(
+                        'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
+                        txPeriod === p
+                          ? 'bg-white text-brand-600 shadow-sm'
+                          : 'text-surface-500 hover:text-surface-700'
+                      )}
+                    >
+                      {p === 'today' ? 'Today' : p}
                     </button>
-                  </div>
-                )
-              })}
+                  ))}
+                </div>
+                <Link
+                  href="/dashboard/reports"
+                  className="flex items-center gap-1 text-xs text-brand-600 font-semibold hover:underline whitespace-nowrap"
+                >
+                  View all <ChevronRight className="h-3 w-3" />
+                </Link>
+              </div>
+            </div>
+
+            {/* Transaction rows */}
+            <div className="divide-y divide-surface-50 max-h-[420px] overflow-y-auto">
+              {filteredTx.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-10 text-surface-400">
+                  <ShoppingCart className="h-8 w-8 opacity-30" />
+                  <p className="text-sm">No transactions in this period</p>
+                </div>
+              ) : (
+                filteredTx.map(order => {
+                  const status  = statusConfig[order.status]  ?? statusConfig.completed
+                  const payment = paymentConfig[order.paymentMethod] ?? paymentConfig.card
+                  return (
+                    <div key={order.id} className="px-6 py-4 hover:bg-surface-50/70 transition-colors">
+                      {/* Top row: ID · time · status · payment · total */}
+                      <div className="flex items-start justify-between gap-3 mb-1.5">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-bold text-surface-900">{order.orderNumber}</p>
+                            <Badge variant={status.variant} size="sm">{status.label}</Badge>
+                          </div>
+                          <p className="text-[11px] text-surface-400 flex items-center gap-1 mt-0.5">
+                            <Clock className="h-3 w-3" />
+                            {formatDateTime(order.createdAt)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
+                          <span className="text-sm leading-none">{payment.icon}</span>
+                          <span className="text-xs text-surface-500">{payment.label}</span>
+                          <span className="text-sm font-bold text-surface-900 num-display">
+                            {formatCurrency(order.total)}
+                          </span>
+                        </div>
+                      </div>
+                      {/* Items row */}
+                      <p className="text-xs text-surface-500 leading-relaxed">
+                        <span className="font-medium text-surface-400">Items: </span>
+                        {order.items.map(i => `${i.productName} (${i.quantity})`).join(' · ')}
+                      </p>
+                    </div>
+                  )
+                })
+              )}
             </div>
           </div>
 

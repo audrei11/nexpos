@@ -3,27 +3,47 @@
 import { useState } from 'react'
 import { Search, Plus, Mail, Phone, ShoppingBag, Calendar } from 'lucide-react'
 import { Header } from '@/components/layout/header'
-import { cn, formatDate, getInitials } from '@/lib/utils'
-import { CUSTOMERS } from '@/lib/mock-data'
+import { CustomerModal } from '@/components/customers/customer-modal'
+import { formatDate, getInitials } from '@/lib/utils'
+import type { Customer } from '@/lib/types'
+import { saveCustomerToSheets } from '@/lib/sheets'
+import { useCustomers } from '@/lib/customers-context'
 import toast from 'react-hot-toast'
 
 export default function CustomersPage() {
+  const { customers, setCustomers } = useCustomers()
   const [search, setSearch] = useState('')
+  const [showModal, setShowModal] = useState(false)
 
-  const filtered = CUSTOMERS.filter(c =>
+  const filtered = customers.filter(c =>
     !search.trim() ||
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.email?.toLowerCase().includes(search.toLowerCase())
   )
 
+  function handleSave(customer: Customer) {
+    setCustomers(prev => [customer, ...prev])
+    setShowModal(false)
+    saveCustomerToSheets({
+      id: customer.id,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      notes: customer.notes,
+      total_purchases: customer.totalPurchases,
+      created_at: customer.createdAt,
+    }).catch(console.error)
+    toast.success(`${customer.name} added successfully!`)
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <Header
         title="Customers"
-        subtitle={`${CUSTOMERS.length} customers total`}
+        subtitle={`${customers.length} customers total`}
         actions={
           <button
-            onClick={() => toast.success('Add customer modal coming soon!')}
+            onClick={() => setShowModal(true)}
             className="flex h-9 items-center gap-2 rounded-xl bg-brand-gradient px-4 text-sm font-semibold text-white shadow-brand hover:brightness-110 transition-all"
           >
             <Plus className="h-4 w-4" />
@@ -71,6 +91,9 @@ export default function CustomersPage() {
                       <span className="text-xs text-surface-500">{customer.phone}</span>
                     </div>
                   )}
+                  {customer.notes && (
+                    <p className="mt-1 text-xs text-surface-400 truncate">{customer.notes}</p>
+                  )}
                 </div>
               </div>
 
@@ -103,6 +126,12 @@ export default function CustomersPage() {
           </div>
         )}
       </div>
+
+      <CustomerModal
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        onSave={handleSave}
+      />
     </div>
   )
 }

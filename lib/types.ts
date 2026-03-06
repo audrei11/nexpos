@@ -1,3 +1,21 @@
+// ─── Ingredient ──────────────────────────────────────────────────────────
+export interface Ingredient {
+  id: string
+  name: string
+  unit: string        // g, ml, pcs, etc.
+  stock: number
+  minStock: number
+  costPerUnit: number
+  createdAt: string
+  updatedAt: string
+}
+
+// ─── Recipe ───────────────────────────────────────────────────────────────
+export interface RecipeItem {
+  ingredientId: string
+  quantityRequired: number  // per 1 unit of product sold
+}
+
 // ─── Product ────────────────────────────────────────────────────────────
 export interface Product {
   id: string
@@ -16,6 +34,7 @@ export interface Product {
   unit?: string
   taxRate?: number
   isActive: boolean
+  recipe?: RecipeItem[]   // ingredient recipe (café mode)
   createdAt: string
   updatedAt: string
 }
@@ -86,6 +105,7 @@ export interface Customer {
   name: string
   email?: string
   phone?: string
+  notes?: string
   totalPurchases?: number
   lastPurchase?: string
   createdAt: string

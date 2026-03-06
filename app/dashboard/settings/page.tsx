@@ -3,10 +3,17 @@
 import { useState } from 'react'
 import {
   Store, Receipt, Users, Bell, Shield, CreditCard,
-  Palette, Globe, ChevronRight, Save, Check, Zap
+  Palette, Globe, ChevronRight, Save, Check, Zap,
+  Database, Trash2, AlertTriangle,
 } from 'lucide-react'
 import { Header } from '@/components/layout/header'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/lib/auth-context'
+import { useProducts } from '@/lib/products-context'
+import { useTransactions } from '@/lib/transactions-context'
+import { useCustomers } from '@/lib/customers-context'
+import { useIngredients } from '@/lib/ingredients-context'
+import { clearStoreData } from '@/lib/sheets'
 import toast from 'react-hot-toast'
 
 const SETTINGS_SECTIONS = [
@@ -18,6 +25,7 @@ const SETTINGS_SECTIONS = [
   { id: 'notifications', label: 'Notifications', icon: Bell, desc: 'Alerts & email settings' },
   { id: 'security',  label: 'Security',    icon: Shield,     desc: '2FA, sessions, audit' },
   { id: 'locale',    label: 'Locale',      icon: Globe,      desc: 'Currency, timezone, language' },
+  { id: 'data',      label: 'Data',        icon: Database,   desc: 'Reset, export & import data' },
 ]
 
 function SettingRow({
@@ -57,6 +65,33 @@ export default function SettingsPage() {
   const [active, setActive] = useState('business')
   const [saved, setSaved] = useState(false)
 
+  // Reset modal state
+  const [showResetModal, setShowResetModal] = useState(false)
+  const [resetLoading, setResetLoading]     = useState(false)
+
+  // Auth + context resets
+  const { user }              = useAuth()
+  const { resetProducts }     = useProducts()
+  const { resetTransactions } = useTransactions()
+  const { resetCustomers }    = useCustomers()
+  const { resetIngredients }  = useIngredients()
+
+  const handleResetStore = async () => {
+    setResetLoading(true)
+    try {
+      await clearStoreData()
+    } catch {
+      // Sheets unavailable — still clear local state
+    }
+    resetProducts()
+    resetTransactions()
+    resetCustomers()
+    resetIngredients()
+    setShowResetModal(false)
+    setResetLoading(false)
+    toast.success('Store data cleared successfully.')
+  }
+
   // Business settings state
   const [businessName, setBusinessName] = useState('My Awesome Store')
   const [currency, setCurrency] = useState('USD')
@@ -88,6 +123,7 @@ export default function SettingsPage() {
   const section = SETTINGS_SECTIONS.find(s => s.id === active)
 
   return (
+    <>
     <div className="flex flex-col h-full overflow-hidden">
       <Header
         title="Settings"
@@ -284,8 +320,52 @@ export default function SettingsPage() {
               </div>
             )}
 
+            {/* Data Management */}
+            {active === 'data' && (
+              <div className="space-y-4">
+                {/* Info card */}
+                <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-6">
+                  <h3 className="text-sm font-bold text-surface-900 mb-1 uppercase tracking-wider">Data Management</h3>
+                  <p className="text-xs text-surface-500 mb-4">Manage store data, exports, and imports.</p>
+                  <SettingRow label="Export Data" description="Download all store data as CSV">
+                    <button
+                      onClick={() => toast('Export coming soon')}
+                      className="rounded-xl border border-surface-200 bg-white px-3 py-1.5 text-xs font-semibold text-surface-700 hover:bg-surface-50 transition-all"
+                    >
+                      Export CSV
+                    </button>
+                  </SettingRow>
+                </div>
+
+                {/* Danger Zone */}
+                <div className="rounded-2xl border-2 border-rose-200 bg-rose-50/40 p-6">
+                  <div className="flex items-center gap-2 mb-5">
+                    <AlertTriangle className="h-4 w-4 text-rose-500" />
+                    <h3 className="text-sm font-bold text-rose-700 uppercase tracking-wider">Danger Zone</h3>
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-surface-900">Reset Store Data</p>
+                      <p className="text-xs text-surface-500 mt-1 max-w-sm">
+                        Permanently removes all products, transactions, customers, and inventory logs
+                        for <span className="font-semibold">{user?.storeName ?? 'this store'}</span>.
+                        This cannot be undone.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowResetModal(true)}
+                      className="flex-shrink-0 flex items-center gap-2 rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 active:scale-[0.98] transition-all"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Reset Store
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Placeholder for other sections */}
-            {!['business', 'pos', 'notifications', 'security'].includes(active) && (
+            {!['business', 'pos', 'notifications', 'security', 'data'].includes(active) && (
               <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-12 text-center">
                 {section && (
                   <div className="flex flex-col items-center gap-3 text-surface-400">
@@ -304,5 +384,56 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+
+    {/* ── Reset Confirmation Modal ──────────────────────────────────────── */}
+    {showResetModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-surface-100 p-6 animate-slide-up">
+          <div className="flex items-start gap-4 mb-6">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-rose-100">
+              <AlertTriangle className="h-6 w-6 text-rose-500" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-base font-bold text-surface-900 mb-1">Reset Store Data?</h3>
+              <p className="text-sm text-surface-500 leading-relaxed">
+                This will permanently delete all products, transactions, customers, and inventory logs
+                for <span className="font-semibold text-surface-700">{user?.storeName}</span>.
+                This action cannot be undone.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 justify-end">
+            <button
+              onClick={() => setShowResetModal(false)}
+              disabled={resetLoading}
+              className="px-4 py-2.5 rounded-xl border border-surface-200 text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-all disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleResetStore}
+              disabled={resetLoading}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-500 text-sm font-bold text-white hover:bg-rose-600 active:scale-[0.98] transition-all disabled:opacity-70"
+            >
+              {resetLoading ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Clearing...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  Confirm Reset
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

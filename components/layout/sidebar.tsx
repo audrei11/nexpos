@@ -3,80 +3,63 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard,
-  ShoppingCart,
-  Package,
-  BarChart3,
-  Settings,
-  Boxes,
-  LogOut,
-  Zap,
-  Users,
-  ChevronRight,
+  LayoutDashboard, ShoppingCart, Package, BarChart3,
+  Settings, Boxes, LogOut, Zap, Users, ChevronRight, X, FlaskConical,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useSidebar } from '@/lib/sidebar-context'
 
 const NAV_ITEMS = [
-  {
-    label: 'Dashboard',
-    href: '/dashboard',
-    icon: LayoutDashboard,
-  },
-  {
-    label: 'POS Terminal',
-    href: '/dashboard/pos',
-    icon: ShoppingCart,
-    badge: 'LIVE',
-  },
-  {
-    label: 'Products',
-    href: '/dashboard/products',
-    icon: Package,
-  },
-  {
-    label: 'Inventory',
-    href: '/dashboard/inventory',
-    icon: Boxes,
-  },
-  {
-    label: 'Customers',
-    href: '/dashboard/customers',
-    icon: Users,
-  },
-  {
-    label: 'Reports',
-    href: '/dashboard/reports',
-    icon: BarChart3,
-  },
+  { label: 'Dashboard',    href: '/dashboard',            icon: LayoutDashboard },
+  { label: 'POS Terminal', href: '/dashboard/pos',        icon: ShoppingCart,   badge: 'LIVE' },
+  { label: 'Products',     href: '/dashboard/products',   icon: Package },
+  { label: 'Inventory',    href: '/dashboard/inventory',   icon: Boxes },
+  { label: 'Ingredients',  href: '/dashboard/ingredients', icon: FlaskConical },
+  { label: 'Customers',    href: '/dashboard/customers',   icon: Users },
+  { label: 'Reports',      href: '/dashboard/reports',    icon: BarChart3 },
 ]
 
 const BOTTOM_ITEMS = [
-  {
-    label: 'Settings',
-    href: '/dashboard/settings',
-    icon: Settings,
-  },
+  { label: 'Settings', href: '/dashboard/settings', icon: Settings },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
+  const { close } = useSidebar()
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard'
     return pathname.startsWith(href)
   }
 
+  // Close sidebar on mobile after navigating
+  const handleNavClick = () => {
+    close()
+  }
+
   return (
     <aside className="flex h-screen w-[240px] flex-shrink-0 flex-col bg-surface-900 border-r border-white/[0.06]">
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-5 h-16 border-b border-white/[0.06]">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient shadow-brand">
-          <Zap className="h-4 w-4 text-white" />
+
+      {/* Logo row */}
+      <div className="flex items-center justify-between px-5 h-16 border-b border-white/[0.06]">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient shadow-brand">
+            <Zap className="h-4 w-4 text-white" />
+          </div>
+          <div>
+            <span className="text-[15px] font-bold text-white tracking-tight">NEXPOS</span>
+            <span className="ml-1.5 text-[9px] font-semibold text-brand-400 uppercase tracking-wider">Pro</span>
+          </div>
         </div>
-        <div>
-          <span className="text-[15px] font-bold text-white tracking-tight">NEXPOS</span>
-          <span className="ml-1.5 text-[9px] font-semibold text-brand-400 uppercase tracking-wider">Pro</span>
-        </div>
+
+        {/* Close button — mobile only */}
+        <button
+          onClick={close}
+          className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/[0.06] text-surface-400 hover:bg-white/[0.12] hover:text-white transition-all lg:hidden"
+          aria-label="Close menu"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       {/* Navigation */}
@@ -92,6 +75,7 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={handleNavClick}
                 className={cn(
                   'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150',
                   active
@@ -99,7 +83,6 @@ export function Sidebar() {
                     : 'text-surface-400 hover:bg-white/[0.05] hover:text-surface-200'
                 )}
               >
-                {/* Active indicator */}
                 <span
                   className={cn(
                     'absolute left-0 h-6 w-0.5 rounded-r-full bg-brand-400 transition-all duration-200',
@@ -137,6 +120,7 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={handleNavClick}
                 className={cn(
                   'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150',
                   active

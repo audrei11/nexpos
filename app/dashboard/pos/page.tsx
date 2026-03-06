@@ -1,14 +1,18 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Search, Plus, Minus, Trash2, X, CreditCard, Banknote,
   QrCode, ShoppingBag, User, Tag, ChevronDown, Receipt,
   CheckCircle2, RefreshCw, Zap, ScanLine
 } from 'lucide-react'
 import { cn, formatCurrency, generateOrderId } from '@/lib/utils'
-import { PRODUCTS, CATEGORIES } from '@/lib/mock-data'
+import { CATEGORIES } from '@/lib/mock-data'
 import type { CartItem, Product, PaymentMethod } from '@/lib/types'
+import { saveTransactionToSheets, saveProductToSheets, logInventoryChange, saveIngredientToSheets, logIngredientUsage } from '@/lib/sheets'
+import { useProducts } from '@/lib/products-context'
+import { useTransactions } from '@/lib/transactions-context'
+import { useIngredients } from '@/lib/ingredients-context'
 import toast from 'react-hot-toast'
 
 // ─── Payment Modal ────────────────────────────────────────────────────────
@@ -131,7 +135,7 @@ function PaymentModal({
               <div className="flex-1 rounded-xl border border-surface-200 bg-surface-50 p-3 text-center">
                 <p className="text-xs text-surface-500 font-medium">Tendered</p>
                 <p className="text-xl font-bold text-surface-900 num-display mt-0.5">
-                  ${cashInput || '0.00'}
+                  ₱{cashInput || '0.00'}
                 </p>
               </div>
               <div className={cn(
@@ -199,7 +203,7 @@ function PaymentModal({
         <div className="px-6 pb-6">
           <button
             onClick={handleConfirm}
-            disabled={processing || (method === 'cash' && cashTendered < total)}
+            disabled={processing || (method === 'cash' && Math.round(cashTendered * 100) < Math.round(total * 100))}
             className={cn(
               'w-full h-14 rounded-2xl text-base font-bold text-white transition-all duration-200',
               'bg-brand-gradient shadow-brand hover:shadow-brand-lg hover:brightness-110',
@@ -258,13 +262,17 @@ function ProductCard({
         </span>
       )}
 
-      {/* Product emoji / image */}
+      {/* Product image / emoji */}
       <div className={cn(
-        'mb-3 flex h-12 w-12 items-center justify-center rounded-xl text-2xl',
+        'mb-3 flex h-12 w-12 items-center justify-center rounded-xl overflow-hidden',
         'transition-transform duration-200 group-hover:scale-110',
         outOfStock ? 'bg-surface-100' : 'bg-surface-50 group-hover:bg-brand-50'
       )}>
-        {product.emoji}
+        {product.imageUrl ? (
+          <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" />
+        ) : (
+          <span className="text-2xl">{product.emoji}</span>
+        )}
       </div>
 
       {/* Name */}
@@ -316,9 +324,13 @@ function CartItemRow({
 }) {
   return (
     <div className="group flex items-center gap-3 py-3 border-b border-surface-100 last:border-0 animate-slide-up">
-      {/* Emoji */}
-      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-surface-50 text-lg">
-        {item.product.emoji}
+      {/* Image / Emoji */}
+      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-surface-50 overflow-hidden text-lg">
+        {item.product.imageUrl ? (
+          <img src={item.product.imageUrl} alt={item.product.name} className="h-full w-full object-cover" />
+        ) : (
+          item.product.emoji
+        )}
       </div>
 
       {/* Info */}
@@ -362,30 +374,34 @@ function CartItemRow({
 
 // ─── Main POS Page ────────────────────────────────────────────────────────
 export default function POSPage() {
+  const { products, setProducts } = useProducts()
+  const { addTransaction } = useTransactions()
+  const { ingredients, setIngredients } = useIngredients()
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
   const [discountValue, setDiscountValue] = useState(0)
   const [showDiscount, setShowDiscount] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
-  const [orderNumber] = useState(() => generateOrderId())
+  const [orderNumber, setOrderNumber] = useState('')
+  useEffect(() => { setOrderNumber(generateOrderId()) }, [])
   const [completedOrders, setCompletedOrders] = useState(0)
   const TAX_RATE = 0.08
 
-  // Filtered products
+  // Filtered products — uses `products` state so stock updates reflect live
   const filteredProducts = useMemo(() => {
-    let products = PRODUCTS.filter(p => p.isActive)
+    let list = products.filter(p => p.isActive)
     if (selectedCategory !== 'all') {
-      products = products.filter(p => p.category === selectedCategory)
+      list = list.filter(p => p.category === selectedCategory)
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      products = products.filter(
+      list = list.filter(
         p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
       )
     }
-    return products
-  }, [selectedCategory, searchQuery])
+    return list
+  }, [products, selectedCategory, searchQuery])
 
   // Cart quantities map
   const cartQtyMap = useMemo(() => {
@@ -404,6 +420,9 @@ export default function POSPage() {
   const addToCart = useCallback((product: Product) => {
     setCart(prev => {
       const existing = prev.find(i => i.product.id === product.id)
+      const currentQty = existing?.quantity ?? 0
+      // Never exceed available stock
+      if (currentQty >= product.stock) return prev
       if (existing) {
         return prev.map(i =>
           i.product.id === product.id
@@ -416,10 +435,18 @@ export default function POSPage() {
   }, [])
 
   const incQty = useCallback((productId: string) => {
-    setCart(prev => prev.map(i =>
-      i.product.id === productId ? { ...i, quantity: i.quantity + 1 } : i
-    ))
-  }, [])
+    const available = products.find(p => p.id === productId)?.stock ?? 0
+    setCart(prev => {
+      const item = prev.find(i => i.product.id === productId)
+      if (item && item.quantity >= available) {
+        toast.error('No more stock available', { duration: 2000 })
+        return prev
+      }
+      return prev.map(i =>
+        i.product.id === productId ? { ...i, quantity: i.quantity + 1 } : i
+      )
+    })
+  }, [products])
 
   const decQty = useCallback((productId: string) => {
     setCart(prev => {
@@ -436,13 +463,157 @@ export default function POSPage() {
 
   const clearCart = useCallback(() => setCart([]), [])
 
-  const handlePaymentConfirm = useCallback(() => {
+  const handlePaymentConfirm = useCallback((method: PaymentMethod) => {
+    // 0. Validate stock — prevent sale if any item exceeds available stock
+    const overStock = cart.filter(item => {
+      const current = products.find(p => p.id === item.product.id)
+      return !current || item.quantity > current.stock
+    })
+    if (overStock.length > 0) {
+      setPaymentOpen(false)
+      toast.error(
+        `Insufficient stock for: ${overStock.map(i => i.product.name).join(', ')}`,
+        { duration: 5000 }
+      )
+      return
+    }
+
+    // Check ingredient availability for recipe-based products
+    for (const cartItem of cart) {
+      const recipe = cartItem.product.recipe ?? []
+      for (const recipeItem of recipe) {
+        const ingredient = ingredients.find(i => i.id === recipeItem.ingredientId)
+        if (!ingredient) continue
+        const needed = recipeItem.quantityRequired * cartItem.quantity
+        if (ingredient.stock < needed) {
+          setPaymentOpen(false)
+          toast.error(`Insufficient ${ingredient.name} for ${cartItem.product.name}`, { duration: 5000 })
+          return
+        }
+      }
+    }
+
+    const txId = generateOrderId()
+    const now  = new Date().toISOString()
+
+    // 1. Deduct stock in local state
+    setProducts(prev => prev.map(p => {
+      const sold = cart.find(i => i.product.id === p.id)
+      if (!sold) return p
+      return { ...p, stock: Math.max(0, p.stock - sold.quantity), updatedAt: now }
+    }))
+
+    // 2. Deduct ingredient stock for recipe-based products
+    const ingredientUpdates: Record<string, number> = {}
+    cart.forEach(cartItem => {
+      (cartItem.product.recipe ?? []).forEach(ri => {
+        ingredientUpdates[ri.ingredientId] =
+          (ingredientUpdates[ri.ingredientId] ?? 0) + ri.quantityRequired * cartItem.quantity
+      })
+    })
+    if (Object.keys(ingredientUpdates).length > 0) {
+      setIngredients(prev => prev.map(ing => {
+        const used = ingredientUpdates[ing.id]
+        if (!used) return ing
+        const newStock = Math.max(0, ing.stock - used)
+        saveIngredientToSheets('updateIngredient', {
+          id: ing.id, name: ing.name, unit: ing.unit,
+          stock: newStock, min_stock: ing.minStock,
+          cost_per_unit: ing.costPerUnit,
+          created_at: ing.createdAt, updated_at: now,
+        }).catch(console.error)
+        logIngredientUsage({
+          ingredient_id: ing.id, ingredient_name: ing.name,
+          change_type: 'sale',
+          quantity_before: ing.stock, quantity_after: newStock,
+          note: `Sale ${txId}`,
+        }).catch(console.error)
+        return { ...ing, stock: newStock, updatedAt: now }
+      }))
+    }
+
+    // 3. Sync each sold product's new stock to Sheets + log inventory
+    cart.forEach(item => {
+      const current = products.find(p => p.id === item.product.id)
+      if (!current) return
+      const newStock = Math.max(0, current.stock - item.quantity)
+      const updated  = { ...current, stock: newStock, updatedAt: now }
+
+      saveProductToSheets('updateProduct', {
+        id: updated.id, name: updated.name, sku: updated.sku,
+        category: updated.category, price: updated.price, cost: updated.cost,
+        stock: newStock, min_stock: updated.minStock,
+        description: updated.description, emoji: updated.emoji,
+        barcode: updated.barcode, unit: updated.unit,
+        tax_rate: updated.taxRate, is_active: updated.isActive !== false,
+        image_url: updated.imageUrl,
+        created_at: updated.createdAt, updated_at: now,
+      }).catch(console.error)
+
+      logInventoryChange({
+        product_id: current.id,
+        product_name: current.name,
+        change_type: 'sale',
+        quantity_before: current.stock,
+        quantity_after: newStock,
+        note: `Sale ${txId}`,
+      }).catch(console.error)
+    })
+
+    // 4. Save transaction to Sheets
+    saveTransactionToSheets({
+      transaction_id: txId,
+      date: now,
+      subtotal,
+      discount_pct: discountValue,
+      discount_amount: discountAmount,
+      tax_amount: taxAmount,
+      total,
+      payment_method: method,
+      items_count: cart.reduce((s, i) => s + i.quantity, 0),
+      cashier: 'Alex Chen',
+      items: cart.map(i => ({
+        product_id: i.product.id,
+        product_name: i.product.name,
+        sku: i.product.sku,
+        quantity: i.quantity,
+        unit_price: i.product.price,
+        subtotal: i.product.price * i.quantity,
+      })),
+    }).catch(() => {
+      toast.error('Could not save to Google Sheets', { duration: 4000 })
+    })
+
+    // 5. Add to shared transactions context (feeds Reports page live)
+    addTransaction({
+      id: txId,
+      orderNumber: txId,
+      items: cart.map(i => ({
+        productId: i.product.id,
+        productName: i.product.name,
+        quantity: i.quantity,
+        unitPrice: i.product.price,
+        discount: 0,
+        total: i.product.price * i.quantity,
+      })),
+      subtotal,
+      tax: taxAmount,
+      discount: discountAmount,
+      total,
+      paymentMethod: method,
+      status: 'completed',
+      cashierName: 'Alex Chen',
+      createdAt: now,
+      updatedAt: now,
+    })
+
     setPaymentOpen(false)
     clearCart()
     setDiscountValue(0)
+    setOrderNumber(generateOrderId())
     setCompletedOrders(n => n + 1)
     toast.success('Order completed successfully!')
-  }, [clearCart])
+  }, [clearCart, cart, products, ingredients, setIngredients, subtotal, discountValue, discountAmount, taxAmount, total, addTransaction])
 
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0)
 
@@ -671,7 +842,7 @@ export default function POSPage() {
                   { id: 'card',   label: 'Card',   icon: CreditCard, color: 'brand' },
                   { id: 'mobile', label: 'QR Pay', icon: QrCode,     color: 'violet' },
                 ] as const
-              ).map(({ id, label, icon: Icon, color }) => (
+              ).map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => setPaymentOpen(true)}
