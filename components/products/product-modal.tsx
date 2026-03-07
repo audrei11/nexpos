@@ -9,6 +9,27 @@ import { uploadProductImage } from '@/lib/sheets'
 import { useIngredients } from '@/lib/ingredients-context'
 import toast from 'react-hot-toast'
 
+// ─── Image compression ───────────────────────────────────────────────────
+function compressImage(file: File, maxDim = 400, quality = 0.75): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const w = Math.round(img.width * scale)
+      const h = Math.round(img.height * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
+      resolve(canvas.toDataURL('image/jpeg', quality))
+    }
+    img.onerror = reject
+    img.src = url
+  })
+}
+
 // ─── Emoji picker presets ────────────────────────────────────────────────
 const EMOJI_PRESETS = [
   '📦','🎧','⌚','🔌','💻','📱','🖥️','⌨️','📷','🎮',
@@ -123,10 +144,7 @@ export function ProductModal({ isOpen, product, onClose, onSave }: ProductModalP
       toast.error('Only JPG, PNG or WebP images are allowed')
       return
     }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('Image must be under 2 MB')
-      return
-    }
+    // No size limit here — large files are compressed before saving
     if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview)
     setImageFile(file)
     setImagePreview(URL.createObjectURL(file))
@@ -166,10 +184,26 @@ export function ProductModal({ isOpen, product, onClose, onSave }: ProductModalP
     if (imageFile) {
       setImageUploading(true)
       try {
-        finalImageUrl = await uploadProductImage(imageFile)
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        toast.error(`Image upload failed: ${msg}`)
+        // Step 1: compress to a small JPEG first (ensures it's always small enough)
+        const compressed = await compressImage(imageFile, 400, 0.8)
+
+        // Step 2: convert compressed data URL back to a File for GAS upload
+        const blob = await fetch(compressed).then(r => r.blob())
+        const smallFile = new File([blob], imageFile.name, { type: 'image/jpeg' })
+
+        // Step 3: try GAS → Google Drive upload (permanent URL, survives reload + other devices)
+        try {
+          finalImageUrl = await uploadProductImage(smallFile)
+        } catch {
+          // GAS unavailable — use the compressed base64 (persists via localStorage on this device)
+          finalImageUrl = compressed
+          toast('Image saved locally — upload to Google Drive unavailable', {
+            icon: '⚠️',
+            duration: 4000,
+          })
+        }
+      } catch {
+        toast.error('Could not process the image. Try a different photo.')
         finalImageUrl = undefined
       } finally {
         setImageUploading(false)

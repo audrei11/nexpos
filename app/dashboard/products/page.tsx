@@ -117,7 +117,8 @@ export default function ProductsPage() {
       unit: p.unit,
       tax_rate: p.taxRate,
       is_active: p.isActive !== false,
-      image_url: p.imageUrl,
+      // Never send base64 to Sheets — too large and breaks the cell
+      image_url: p.imageUrl?.startsWith('data:') ? undefined : p.imageUrl,
       created_at: p.createdAt,
       updated_at: p.updatedAt,
     }
@@ -349,6 +350,13 @@ export default function ProductsPage() {
                         src={product.imageUrl}
                         alt={product.name}
                         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        onError={e => {
+                          e.currentTarget.style.display = 'none'
+                          const div = document.createElement('div')
+                          div.className = 'h-full w-full flex items-center justify-center text-5xl select-none'
+                          div.textContent = product.emoji ?? '📦'
+                          e.currentTarget.parentElement?.appendChild(div)
+                        }}
                       />
                     ) : (
                       <div className="h-full w-full flex items-center justify-center text-5xl select-none">

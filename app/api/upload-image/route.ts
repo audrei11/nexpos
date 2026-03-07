@@ -65,13 +65,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing file or scriptUrl' }, { status: 400 })
     }
 
-    // Validate type and size (max 2 MB)
+    // Validate type (size limit removed — frontend compresses before sending)
     const allowed = ['image/jpeg', 'image/png', 'image/webp']
     if (!allowed.includes(file.type)) {
       return NextResponse.json({ error: 'Only JPG, PNG and WebP images are allowed' }, { status: 400 })
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      return NextResponse.json({ error: 'Image must be under 2 MB' }, { status: 400 })
     }
 
     const bytes = await file.arrayBuffer()

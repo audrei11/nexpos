@@ -229,7 +229,7 @@ function PaymentModal({
   )
 }
 
-// ─── Product Card ─────────────────────────────────────────────────────────
+// ─── Product Card (restaurant menu style) ────────────────────────────────
 function ProductCard({
   product,
   onAdd,
@@ -247,65 +247,73 @@ function ProductCard({
       onClick={() => !outOfStock && onAdd(product)}
       disabled={outOfStock}
       className={cn(
-        'group relative flex flex-col items-start rounded-2xl border bg-white p-4 text-left',
+        'group relative flex flex-col bg-white rounded-2xl border overflow-hidden text-left',
         'shadow-card transition-all duration-200',
         outOfStock
-          ? 'opacity-50 cursor-not-allowed border-surface-100'
+          ? 'opacity-60 cursor-not-allowed border-surface-100'
           : 'cursor-pointer border-surface-100 hover:border-brand-200 hover:shadow-card-md hover:-translate-y-0.5 active:scale-[0.97]',
         qty > 0 && !outOfStock && 'border-brand-300 ring-2 ring-brand-100'
       )}
     >
       {/* Qty badge */}
       {qty > 0 && (
-        <span className="absolute -top-2 -right-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-brand-gradient text-[11px] font-bold text-white shadow-brand animate-scale-in">
+        <span className="absolute top-2 right-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-brand-gradient text-[11px] font-bold text-white shadow-brand animate-scale-in">
           {qty}
         </span>
       )}
 
-      {/* Product image / emoji */}
-      <div className={cn(
-        'mb-3 flex h-12 w-12 items-center justify-center rounded-xl overflow-hidden',
-        'transition-transform duration-200 group-hover:scale-110',
-        outOfStock ? 'bg-surface-100' : 'bg-surface-50 group-hover:bg-brand-50'
-      )}>
+      {/* Image area */}
+      <div className="relative aspect-square w-full overflow-hidden bg-surface-50">
         {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" />
+          <img
+            src={product.imageUrl}
+            alt={product.name}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+            onError={e => {
+              e.currentTarget.style.display = 'none'
+              const div = document.createElement('div')
+              div.className = 'h-full w-full flex items-center justify-center text-4xl'
+              div.textContent = product.emoji ?? '📦'
+              e.currentTarget.parentElement?.appendChild(div)
+            }}
+          />
         ) : (
-          <span className="text-2xl">{product.emoji}</span>
+          <div className="h-full w-full flex items-center justify-center text-4xl select-none transition-transform duration-300 group-hover:scale-110">
+            {product.emoji ?? '📦'}
+          </div>
         )}
-      </div>
 
-      {/* Name */}
-      <p className="text-sm font-semibold text-surface-900 leading-tight line-clamp-2 min-h-[2.5rem]">
-        {product.name}
-      </p>
-
-      {/* Price + stock row */}
-      <div className="mt-auto pt-3 flex items-end justify-between w-full gap-1">
-        <span className="text-base font-bold text-brand-600 num-display">
-          {formatCurrency(product.price)}
+        {/* Stock badge overlay */}
+        <span className={cn(
+          'absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm',
+          outOfStock
+            ? 'bg-rose-500 text-white'
+            : lowStock
+            ? 'bg-amber-400 text-white'
+            : 'bg-emerald-500 text-white'
+        )}>
+          {outOfStock ? 'Out of Stock' : lowStock ? 'Low Stock' : 'In Stock'}
         </span>
-        {outOfStock ? (
-          <span className="text-[10px] font-semibold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-full">
-            Out of stock
-          </span>
-        ) : lowStock ? (
-          <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
-            {product.stock} left
-          </span>
-        ) : (
-          <span className="text-[10px] text-surface-400">In stock</span>
+
+        {/* Add to cart hover overlay */}
+        {!outOfStock && (
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-200 flex items-center justify-center">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-brand-600 shadow-lg opacity-0 scale-50 transition-all duration-200 group-hover:opacity-100 group-hover:scale-100">
+              <Plus className="h-5 w-5" />
+            </span>
+          </div>
         )}
       </div>
 
-      {/* Add overlay */}
-      {!outOfStock && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-brand-600/0 transition-all duration-200 group-hover:bg-brand-600/[0.03]">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-gradient text-white shadow-brand opacity-0 scale-50 transition-all duration-200 group-hover:opacity-100 group-hover:scale-100">
-            <Plus className="h-4 w-4" />
-          </span>
-        </div>
-      )}
+      {/* Info */}
+      <div className="p-3">
+        <p className="text-sm font-bold text-surface-900 leading-tight line-clamp-2">
+          {product.name}
+        </p>
+        <p className="mt-1.5 text-base font-extrabold text-brand-600 num-display">
+          {formatCurrency(product.price)}
+        </p>
+      </div>
     </button>
   )
 }
@@ -327,7 +335,17 @@ function CartItemRow({
       {/* Image / Emoji */}
       <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-surface-50 overflow-hidden text-lg">
         {item.product.imageUrl ? (
-          <img src={item.product.imageUrl} alt={item.product.name} className="h-full w-full object-cover" />
+          <img
+            src={item.product.imageUrl}
+            alt={item.product.name}
+            className="h-full w-full object-cover"
+            onError={e => {
+              e.currentTarget.style.display = 'none'
+              const span = document.createElement('span')
+              span.textContent = item.product.emoji ?? '📦'
+              e.currentTarget.parentElement?.appendChild(span)
+            }}
+          />
         ) : (
           item.product.emoji
         )}
@@ -546,7 +564,7 @@ export default function POSPage() {
         description: updated.description, emoji: updated.emoji,
         barcode: updated.barcode, unit: updated.unit,
         tax_rate: updated.taxRate, is_active: updated.isActive !== false,
-        image_url: updated.imageUrl,
+        image_url: updated.imageUrl?.startsWith('data:') ? undefined : updated.imageUrl,
         created_at: updated.createdAt, updated_at: now,
       }).catch(console.error)
 
@@ -686,28 +704,23 @@ export default function POSPage() {
         </div>
 
         {/* Product Grid */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto p-4">
           {filteredProducts.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-surface-400">
               <ShoppingBag className="h-12 w-12 opacity-30" />
               <p className="text-sm font-medium">No products found</p>
             </div>
           ) : (
-            <>
-              <p className="text-xs font-medium text-surface-400 mb-3">
-                {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''}
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-                {filteredProducts.map(product => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    onAdd={addToCart}
-                    qty={cartQtyMap[product.id] ?? 0}
-                  />
-                ))}
-              </div>
-            </>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {filteredProducts.map(product => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  onAdd={addToCart}
+                  qty={cartQtyMap[product.id] ?? 0}
+                />
+              ))}
+            </div>
           )}
         </div>
       </div>

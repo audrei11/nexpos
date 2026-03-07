@@ -13,6 +13,24 @@ interface ProductsContextValue {
 const ProductsContext = createContext<ProductsContextValue | null>(null)
 
 const STORAGE_KEY = 'nexpos_products'
+const IMAGES_KEY = 'nexpos_product_images'
+
+function loadStoredImages(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(IMAGES_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveStoredImages(images: Record<string, string>) {
+  try {
+    localStorage.setItem(IMAGES_KEY, JSON.stringify(images))
+  } catch {
+    // quota exceeded — nothing we can do for the image store
+  }
+}
 
 function migrateImageUrl(url: string): string {
   const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/)
@@ -48,10 +66,13 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
       const stored = localStorage.getItem(STORAGE_KEY)
       if (!stored) return []
       const parsed: Product[] = JSON.parse(stored)
-      return parsed.map(p => ({
-        ...p,
-        imageUrl: p.imageUrl ? migrateImageUrl(p.imageUrl) : p.imageUrl,
-      }))
+      const images = loadStoredImages()
+      return parsed.map(p => {
+        const migratedUrl = p.imageUrl ? migrateImageUrl(p.imageUrl) : p.imageUrl
+        // Restore base64 image from the separate image store if product has none
+        const imageUrl = migratedUrl ?? images[p.id] ?? undefined
+        return { ...p, imageUrl }
+      })
     } catch {
       return []
     }
@@ -62,7 +83,30 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
     (action) => {
       setProducts(prev => {
         const next = typeof action === 'function' ? action(prev) : action
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
+
+        // Extract base64 images into a separate store so they don't compete
+        // with product metadata for the same 5MB quota
+        const images = loadStoredImages()
+        let imagesChanged = false
+        const productsToStore = next.map(p => {
+          if (p.imageUrl?.startsWith('data:')) {
+            images[p.id] = p.imageUrl
+            imagesChanged = true
+            // Strip data URL from product record — restored from images store on load
+            return { ...p, imageUrl: undefined }
+          }
+          return p
+        })
+        if (imagesChanged) saveStoredImages(images)
+
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(productsToStore))
+        } catch {
+          // Still quota exceeded (non-image data too large) — best-effort
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(productsToStore))
+          } catch {}
+        }
         return next
       })
     },
@@ -79,18 +123,36 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
         .filter(p => p.id) // skip rows with no id
 
       setProductsPersisted(prev => {
+        const images = loadStoredImages()
+        // Merge Sheets products, preserving local-only fields
         const merged = sheetsProducts.map(sp => {
           const local = prev.find(p => p.id === sp.id)
-          // Preserve recipe from localStorage since Sheets doesn't store it
-          return local?.recipe ? { ...sp, recipe: local.recipe } : sp
+          // Decide which imageUrl to use:
+          // - Local has a data: URL in memory → keep it (base64 lives locally only)
+          // - Local has a data: URL in image store → restore it
+          // - Sheets has a real URL → use it (authoritative)
+          // - Fall back to whatever local has
+          const localBase64 = local?.imageUrl?.startsWith('data:')
+            ? local.imageUrl
+            : images[sp.id]
+          const imageUrl = localBase64 ?? sp.imageUrl ?? local?.imageUrl
+          return {
+            ...sp,
+            ...(imageUrl ? { imageUrl } : {}),
+            // Preserve recipe — Sheets doesn't store it
+            ...(local?.recipe ? { recipe: local.recipe } : {}),
+          }
         })
-        return merged
+        // Keep locally-added products that haven't synced to Sheets yet
+        const localOnly = prev.filter(p => !sheetsProducts.find(sp => sp.id === p.id))
+        return [...merged, ...localOnly]
       })
     }).catch(() => { /* GAS unavailable — keep localStorage data */ })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetProducts = useCallback(() => {
     try { localStorage.removeItem(STORAGE_KEY) } catch {}
+    try { localStorage.removeItem(IMAGES_KEY) } catch {}
     setProducts([])
   }, [])
 
