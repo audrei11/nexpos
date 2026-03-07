@@ -9,6 +9,16 @@ import { uploadProductImage } from '@/lib/sheets'
 import { useIngredients } from '@/lib/ingredients-context'
 import toast from 'react-hot-toast'
 
+// ─── base64 → Blob (without fetch, works in all browsers) ───────────────
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(',')
+  const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg'
+  const bytes = atob(base64)
+  const arr = new Uint8Array(bytes.length)
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+  return new Blob([arr], { type: mime })
+}
+
 // ─── Image compression ───────────────────────────────────────────────────
 function compressImage(file: File, maxDim = 400, quality = 0.75): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -186,17 +196,18 @@ export function ProductModal({ isOpen, product, onClose, onSave }: ProductModalP
       try {
         // Step 1: compress to a small JPEG first (ensures it's always small enough)
         const compressed = await compressImage(imageFile, 400, 0.8)
+        // Always keep base64 as safe fallback — set it now before any async step
+        finalImageUrl = compressed
 
         // Step 2: convert compressed data URL back to a File for GAS upload
-        const blob = await fetch(compressed).then(r => r.blob())
+        const blob = dataUrlToBlob(compressed)
         const smallFile = new File([blob], imageFile.name, { type: 'image/jpeg' })
 
         // Step 3: try GAS → Google Drive upload (permanent URL, survives reload + other devices)
         try {
           finalImageUrl = await uploadProductImage(smallFile)
         } catch {
-          // GAS unavailable — use the compressed base64 (persists via localStorage on this device)
-          finalImageUrl = compressed
+          // GAS unavailable — fall back to the compressed base64 already set above
           toast('Image saved locally — upload to Google Drive unavailable', {
             icon: '⚠️',
             duration: 4000,
@@ -204,7 +215,7 @@ export function ProductModal({ isOpen, product, onClose, onSave }: ProductModalP
         }
       } catch {
         toast.error('Could not process the image. Try a different photo.')
-        finalImageUrl = undefined
+        // finalImageUrl stays as whatever was set before (undefined if compression failed too)
       } finally {
         setImageUploading(false)
       }
