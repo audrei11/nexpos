@@ -43,19 +43,9 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
 }
 
 export function ProductsProvider({ children }: { children: React.ReactNode }) {
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      if (!stored) return []
-      const parsed: Product[] = JSON.parse(stored)
-      return parsed.map(p => ({
-        ...p,
-        imageUrl: p.imageUrl ? migrateImageUrl(p.imageUrl) : p.imageUrl,
-      }))
-    } catch {
-      return []
-    }
-  })
+  // Start with empty array to avoid SSR/client hydration mismatch.
+  // localStorage is loaded after mount via useEffect below.
+  const [products, setProducts] = useState<Product[]>([])
 
   // Persist to localStorage on every products state change
   const setProductsPersisted: React.Dispatch<React.SetStateAction<Product[]>> = useCallback(
@@ -78,6 +68,20 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
     },
     []
   )
+
+  // Load from localStorage after mount (runs only on client, no SSR mismatch)
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      if (stored) {
+        const parsed: Product[] = JSON.parse(stored)
+        setProducts(parsed.map(p => ({
+          ...p,
+          imageUrl: p.imageUrl ? migrateImageUrl(p.imageUrl) : p.imageUrl,
+        })))
+      }
+    } catch {}
+  }, [])
 
   // On mount: fetch from Sheets and merge
   useEffect(() => {
