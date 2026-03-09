@@ -106,13 +106,23 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
       setProducts(prev => {
         const next = typeof action === 'function' ? action(prev) : action
 
-        const nextIds = new Set(next.map(p => p.id))
+        // Only delete IndexedDB images for products that are truly gone
+        // (not present in next by id, sku, OR name — not just id).
+        // This prevents images from being deleted when a product's ID changes during a merge.
         prev.forEach(p => {
-          if (!nextIds.has(p.id)) deleteImage(p.id).catch(() => {})
+          const stillExists = next.some(n => isSameProduct(n, p))
+          if (!stillExists) {
+            deleteImage(p.id).catch(() => {})
+            if (p.sku) deleteImage(`sku:${norm(p.sku)}`).catch(() => {})
+          }
         })
 
+        // Save images under both id and sku so they survive id changes during syncing.
         next.forEach(p => {
-          if (p.imageUrl?.startsWith('data:')) saveImage(p.id, p.imageUrl).catch(() => {})
+          if (p.imageUrl?.startsWith('data:')) {
+            saveImage(p.id, p.imageUrl).catch(() => {})
+            if (p.sku) saveImage(`sku:${norm(p.sku)}`, p.imageUrl).catch(() => {})
+          }
         })
 
         try {
@@ -161,9 +171,12 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
       let idbImages: Record<string, string> = {}
       try { idbImages = await loadAllImages() } catch {}
 
-      // Hydrate local products with IndexedDB images
+      // Hydrate local products with IndexedDB images (try id then sku key)
       if (Object.keys(idbImages).length > 0) {
-        loaded = loaded.map(p => ({ ...p, imageUrl: idbImages[p.id] ?? p.imageUrl }))
+        loaded = loaded.map(p => ({
+          ...p,
+          imageUrl: idbImages[p.id] ?? (p.sku ? idbImages[`sku:${norm(p.sku)}`] : undefined) ?? p.imageUrl,
+        }))
       }
 
       if (cancelled) return
@@ -186,7 +199,10 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
             //  2. IndexedDB image by Sheets id (survives logout — idbImages persists)
             //  3. IndexedDB image by old local id (when ids differ after dedup)
             //  4. Sheets Drive URL
-            const idbImg = idbImages[sp.id] ?? (local ? idbImages[local.id] : undefined)
+            const idbImg = idbImages[sp.id]
+              ?? (sp.sku ? idbImages[`sku:${norm(sp.sku)}`] : undefined)
+              ?? (local ? idbImages[local.id] : undefined)
+              ?? (local?.sku ? idbImages[`sku:${norm(local.sku)}`] : undefined)
             const imageUrl = local?.imageUrl?.startsWith('data:')
               ? local.imageUrl
               : idbImg ?? sp.imageUrl ?? local?.imageUrl
@@ -207,11 +223,12 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
           const freshImages = await loadAllImages()
           if (!cancelled && Object.keys(freshImages).length > 0) {
             setProducts(current =>
-              current.map(p =>
-                !p.imageUrl && freshImages[p.id]
-                  ? { ...p, imageUrl: freshImages[p.id] }
-                  : p
-              )
+              current.map(p => {
+                if (p.imageUrl) return p
+                const img = freshImages[p.id]
+                  ?? (p.sku ? freshImages[`sku:${norm(p.sku)}`] : undefined)
+                return img ? { ...p, imageUrl: img } : p
+              })
             )
           }
         }
