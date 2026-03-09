@@ -117,16 +117,19 @@ function stripBase64Images(list: Ingredient[]): Ingredient[] {
 
 export function IngredientsProvider({ children }: { children: React.ReactNode }) {
   // Initialize from localStorage synchronously (images will be hydrated after mount).
-  // If nexpos_ingredients is absent or empty, seed with the starter list and persist it.
+  // Merge seed ingredients into localStorage — existing items are preserved, only missing ones are appended.
   const [ingredients, rawSetIngredients] = useState<Ingredient[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
       const parsed: Ingredient[] = stored ? JSON.parse(stored) : []
-      if (parsed.length > 0) return parsed
-      // First run — seed and immediately persist so refresh keeps the list
+      // Merge: append seed ingredients that don't already exist by name
       const seed = createSeedIngredients()
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(seed)) } catch {}
-      return seed
+      const existingNames = new Set(parsed.map((i) => i.name.toLowerCase()))
+      const missing = seed.filter((s) => !existingNames.has(s.name.toLowerCase()))
+      if (missing.length === 0) return parsed
+      const merged = [...parsed, ...missing]
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)) } catch {}
+      return merged
     } catch {
       return []
     }
