@@ -3,6 +3,11 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import type { Ingredient } from '@/lib/types'
 import { fetchFromSheetsProxy } from '@/lib/sheets'
+import {
+  saveIngredientImage,
+  deleteIngredientImage,
+  loadAllIngredientImages,
+} from '@/lib/ingredient-image-store'
 
 interface IngredientsContextValue {
   ingredients: Ingredient[]
@@ -13,6 +18,8 @@ interface IngredientsContextValue {
 const IngredientsContext = createContext<IngredientsContextValue | null>(null)
 
 const STORAGE_KEY = 'nexpos_ingredients'
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
 
 function mapRowToIngredient(row: Record<string, unknown>): Ingredient {
   return {
@@ -27,8 +34,27 @@ function mapRowToIngredient(row: Record<string, unknown>): Ingredient {
   }
 }
 
+/**
+ * Strip base64 imageUrl from each ingredient before writing to localStorage.
+ * Images are stored separately in IndexedDB (nexpos_ingredient_images).
+ * External URLs (Google Drive, etc.) are kept as-is in localStorage.
+ */
+function stripBase64Images(list: Ingredient[]): Ingredient[] {
+  return list.map(ing => {
+    if (ing.imageUrl?.startsWith('data:')) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { imageUrl: _, ...rest } = ing
+      return rest
+    }
+    return ing
+  })
+}
+
+// ─── Provider ─────────────────────────────────────────────────────────────
+
 export function IngredientsProvider({ children }: { children: React.ReactNode }) {
-  const [ingredients, setIngredients] = useState<Ingredient[]>(() => {
+  // Initialize from localStorage synchronously (images will be hydrated after mount)
+  const [ingredients, rawSetIngredients] = useState<Ingredient[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
       return stored ? JSON.parse(stored) : []
@@ -37,43 +63,103 @@ export function IngredientsProvider({ children }: { children: React.ReactNode })
     }
   })
 
-  const setIngredientsPersisted: React.Dispatch<React.SetStateAction<Ingredient[]>> = useCallback(
+  /**
+   * Persisted setter — routes images to IndexedDB, everything else to localStorage.
+   * This is what the rest of the app should call (exposed as `setIngredients`).
+   */
+  const setIngredients: React.Dispatch<React.SetStateAction<Ingredient[]>> = useCallback(
     (action) => {
-      setIngredients(prev => {
+      rawSetIngredients(prev => {
         const next = typeof action === 'function' ? action(prev) : action
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
+
+        // Manage IndexedDB for each ingredient
+        next.forEach(ing => {
+          if (ing.imageUrl?.startsWith('data:')) {
+            // Save base64 image to IndexedDB
+            saveIngredientImage(ing.id, ing.imageUrl).catch(() => {})
+          } else if (!ing.imageUrl) {
+            // Image was explicitly cleared — remove from IndexedDB to prevent stale restore
+            deleteIngredientImage(ing.id).catch(() => {})
+          }
+          // External URL (Google Drive etc.) → keep in localStorage, no IndexedDB action needed
+        })
+
+        // Persist to localStorage WITHOUT base64 images (stay under 5 MB limit)
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(stripBase64Images(next)))
+        } catch {
+          // Storage quota exceeded — data is still in memory and IndexedDB
+        }
+
         return next
       })
     },
     []
   )
 
-  // On mount: fetch from Sheets (source of truth for ingredient stock/name/unit/cost)
-  // Local emoji and imageUrl are preserved — they are not stored in Sheets
+  // ── Effect 1: hydrate ingredient images from IndexedDB after mount ──────
+  // localStorage only has text data; images live in IndexedDB.
+  // This runs once and re-attaches the saved base64 URLs to in-memory state.
+  useEffect(() => {
+    loadAllIngredientImages().then(idbImages => {
+      if (!Object.keys(idbImages).length) return
+      rawSetIngredients(prev => {
+        let changed = false
+        const updated = prev.map(ing => {
+          if (!ing.imageUrl && idbImages[ing.id]) {
+            changed = true
+            return { ...ing, imageUrl: idbImages[ing.id] }
+          }
+          return ing
+        })
+        return changed ? updated : prev
+      })
+    }).catch(() => { /* IndexedDB unavailable — no images shown */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Effect 2: fetch from Sheets on mount ────────────────────────────────
+  // Sheets is the source of truth for stock / name / unit / cost.
+  // Merge strategy:
+  //   • If the ingredient exists locally: update numeric/text fields from Sheets,
+  //     keep local emoji and imageUrl (not stored in Sheets).
+  //   • If the ingredient is only in Sheets: add it locally.
+  //   • If the ingredient is only local (newly added): keep it untouched.
   useEffect(() => {
     fetchFromSheetsProxy('getIngredients').then(rows => {
       if (!rows.length) return
-      const sheetsIngredients = rows
-        .map(mapRowToIngredient)
-        .filter(i => i.id)
-      setIngredientsPersisted(prev => sheetsIngredients.map(sheetsIng => {
-        const local = prev.find(l => l.id === sheetsIng.id)
-        return {
-          ...sheetsIng,
-          emoji:    local?.emoji,    // preserve local-only fields
-          imageUrl: local?.imageUrl, // base64 image not stored in Sheets
+      const sheetsIngredients = rows.map(mapRowToIngredient).filter(i => i.id)
+
+      setIngredients(prev => {
+        const merged = [...prev]
+
+        for (const sheetsIng of sheetsIngredients) {
+          const localIdx = merged.findIndex(l => l.id === sheetsIng.id)
+          if (localIdx >= 0) {
+            // Update from Sheets but preserve local-only fields
+            merged[localIdx] = {
+              ...sheetsIng,
+              emoji:    merged[localIdx].emoji,
+              imageUrl: merged[localIdx].imageUrl,
+            }
+          } else {
+            // New ingredient from Sheets not yet in local storage — add it
+            merged.push(sheetsIng)
+          }
+          // Note: ingredients only in local (not in Sheets) are left untouched
         }
-      }))
+
+        return merged
+      })
     }).catch(() => { /* GAS unavailable — keep localStorage data */ })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetIngredients = useCallback(() => {
     try { localStorage.removeItem(STORAGE_KEY) } catch {}
-    setIngredients([])
+    rawSetIngredients([])
   }, [])
 
   return (
-    <IngredientsContext.Provider value={{ ingredients, setIngredients: setIngredientsPersisted, resetIngredients }}>
+    <IngredientsContext.Provider value={{ ingredients, setIngredients, resetIngredients }}>
       {children}
     </IngredientsContext.Provider>
   )
