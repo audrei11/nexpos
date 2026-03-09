@@ -19,6 +19,69 @@ const IngredientsContext = createContext<IngredientsContextValue | null>(null)
 
 const STORAGE_KEY = 'nexpos_ingredients'
 
+// ─── Starter seed ─────────────────────────────────────────────────────────
+// Generated once when nexpos_ingredients is absent or empty.
+// Uses deterministic IDs so the seed is idempotent and never duplicated.
+
+function createSeedIngredients(): Ingredient[] {
+  const now = new Date().toISOString()
+  const m = (id: string, name: string, unit: string, emoji: string): Ingredient => ({
+    id, name, unit, stock: 0, minStock: 0, costPerUnit: 0, emoji,
+    createdAt: now, updatedAt: now,
+  })
+  return [
+    // ── Coffee / Drink ──────────────────────────────────────────────────
+    m('ing_seed_001', 'Fresh Milk',        'L',   '🥛'),
+    m('ing_seed_002', 'Evaporated Milk',   'L',   '🥛'),
+    m('ing_seed_003', 'Condensed Milk',    'L',   '🥛'),
+    m('ing_seed_004', 'Fructose Syrup',    'L',   '🍯'),
+    m('ing_seed_005', 'Sugar Syrup',       'L',   '🍯'),
+    m('ing_seed_006', 'Coffee Beans',      'g',   '☕'),
+    m('ing_seed_007', 'Matcha Powder',     'g',   '🍵'),
+    m('ing_seed_008', 'Tea Leaves',        'g',   '🫖'),
+    m('ing_seed_009', 'Chocolate Syrup',   'L',   '🍫'),
+    m('ing_seed_010', 'Strawberry Syrup',  'L',   '🍓'),
+    m('ing_seed_011', 'Caramel Syrup',     'L',   '🍮'),
+    m('ing_seed_012', 'Vanilla Syrup',     'L',   '🍦'),
+    m('ing_seed_013', 'Almond Syrup',      'L',   '🌰'),
+    m('ing_seed_014', 'Sea Salt Foam Base','L',   '🫧'),
+    m('ing_seed_015', 'Whipped Cream',     'kg',  '🍦'),
+    m('ing_seed_016', 'Ice',               'kg',  '🧊'),
+    m('ing_seed_017', 'Water',             'L',   '💧'),
+    // ── Food / Bakery ───────────────────────────────────────────────────
+    m('ing_seed_018', 'Flour / Waffle Mix','kg',  '🌾'),
+    m('ing_seed_019', 'Baking Powder',     'g',   '🥄'),
+    m('ing_seed_020', 'Butter',            'kg',  '🧈'),
+    m('ing_seed_021', 'Egg',               'pcs', '🥚'),
+    m('ing_seed_022', 'Bread',             'pcs', '🍞'),
+    m('ing_seed_023', 'Cheese',            'pcs', '🧀'),
+    m('ing_seed_024', 'Ham',               'pcs', '🥩'),
+    m('ing_seed_025', 'Mayonnaise',        'L',   '🫙'),
+    m('ing_seed_026', 'Lettuce',           'pcs', '🥬'),
+    m('ing_seed_027', 'Tomato',            'pcs', '🍅'),
+    m('ing_seed_028', 'Cucumber',          'pcs', '🥒'),
+    // ── Meal ────────────────────────────────────────────────────────────
+    m('ing_seed_029', 'Rice',              'kg',  '🍚'),
+    m('ing_seed_030', 'Sausage',           'pcs', '🌭'),
+    m('ing_seed_031', 'Bacon',             'pcs', '🥓'),
+    m('ing_seed_032', 'Chicken Fillet',    'pcs', '🍗'),
+    m('ing_seed_033', 'Cooking Oil',       'L',   '🫙'),
+    m('ing_seed_034', 'Onion',             'kg',  '🧅'),
+    m('ing_seed_035', 'Garlic',            'kg',  '🧄'),
+    m('ing_seed_036', 'Salt',              'kg',  '🧂'),
+    m('ing_seed_037', 'Pepper',            'g',   '🌶️'),
+    m('ing_seed_038', 'Soy Sauce',         'L',   '🍶'),
+    m('ing_seed_039', 'Ketchup',           'L',   '🍅'),
+    m('ing_seed_040', 'Gravy Mix',         'kg',  '🫙'),
+    // ── Toppings / Flavorings ────────────────────────────────────────────
+    m('ing_seed_041', 'Cocoa Powder',      'g',   '🍫'),
+    m('ing_seed_042', 'Cinnamon Powder',   'g',   '🌿'),
+    m('ing_seed_043', 'Powdered Sugar',    'g',   '🍬'),
+    m('ing_seed_044', 'Chocolate Chips',   'g',   '🍫'),
+    m('ing_seed_045', 'Biscuit Crumbs',    'g',   '🍪'),
+  ]
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 function mapRowToIngredient(row: Record<string, unknown>): Ingredient {
@@ -53,11 +116,17 @@ function stripBase64Images(list: Ingredient[]): Ingredient[] {
 // ─── Provider ─────────────────────────────────────────────────────────────
 
 export function IngredientsProvider({ children }: { children: React.ReactNode }) {
-  // Initialize from localStorage synchronously (images will be hydrated after mount)
+  // Initialize from localStorage synchronously (images will be hydrated after mount).
+  // If nexpos_ingredients is absent or empty, seed with the starter list and persist it.
   const [ingredients, rawSetIngredients] = useState<Ingredient[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
-      return stored ? JSON.parse(stored) : []
+      const parsed: Ingredient[] = stored ? JSON.parse(stored) : []
+      if (parsed.length > 0) return parsed
+      // First run — seed and immediately persist so refresh keeps the list
+      const seed = createSeedIngredients()
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(seed)) } catch {}
+      return seed
     } catch {
       return []
     }
