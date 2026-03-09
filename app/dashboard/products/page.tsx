@@ -40,7 +40,7 @@ function StatCard({ label, value, color }: {
 
 /* ─── page ─────────────────────────────────────────────────────── */
 export default function ProductsPage() {
-  const { products, setProducts } = useProducts()
+  const { products, setProducts, deleteProduct } = useProducts()
 
   /* filters */
   const [search, setSearch] = useState('')
@@ -180,7 +180,7 @@ export default function ProductsPage() {
   }
 
   function handleDelete(product: Product) {
-    setProducts(prev => prev.filter(p => p.id !== product.id))
+    deleteProduct(product)
     setDeletingProduct(null)
     toast.success(`"${product.name}" deleted`)
   }

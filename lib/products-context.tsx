@@ -9,11 +9,33 @@ interface ProductsContextValue {
   products: Product[]
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>
   resetProducts: () => void
+  deleteProduct: (product: Product) => void
 }
 
 const ProductsContext = createContext<ProductsContextValue | null>(null)
 
-const STORAGE_KEY = 'nexpos_products'
+const STORAGE_KEY   = 'nexpos_products'
+const DELETED_KEY   = 'nexpos_deleted_products'
+
+// ── Deleted-product registry ─────────────────────────────────────────────────
+// Persists which products were explicitly deleted so they are never restored
+// by a Google Sheets sync after logout/login.
+interface DeletedRecord { id: string; sku: string; name: string }
+
+function loadDeleted(): DeletedRecord[] {
+  try { return JSON.parse(localStorage.getItem(DELETED_KEY) ?? '[]') } catch { return [] }
+}
+function saveDeleted(records: DeletedRecord[]): void {
+  try { localStorage.setItem(DELETED_KEY, JSON.stringify(records)) } catch {}
+}
+function isDeletedProduct(p: Product, deleted: DeletedRecord[]): boolean {
+  const pSku  = norm(p.sku);  const pName = norm(p.name)
+  return deleted.some(d =>
+    (d.id   && d.id   === p.id)  ||
+    (d.sku  && d.sku  === pSku)  ||
+    (d.name && d.name === pName)
+  )
+}
 
 function migrateImageUrl(url: string): string {
   const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/)
@@ -187,7 +209,11 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
         const rows = await fetchFromSheetsProxy('getProducts')
         if (cancelled || !rows.length) return
 
-        const sheetsProducts = dedupe(rows.map(mapRowToProduct).filter(p => p.id))
+        const deleted = loadDeleted()
+        const sheetsProducts = dedupe(
+          rows.map(mapRowToProduct)
+              .filter(p => p.id && !isDeletedProduct(p, deleted))
+        )
 
         if (cancelled) return
         setProductsPersisted(prev => {
@@ -239,13 +265,28 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Delete a product permanently ────────────────────────────────────────────
+  // 1. Records the deletion so Sheets sync never restores it.
+  // 2. Removes the product from state + localStorage (via setProductsPersisted).
+  //    setProductsPersisted's smart-delete will also clean up its IndexedDB images.
+  const deleteProduct = useCallback((product: Product) => {
+    // Register in deleted list
+    const deleted = loadDeleted()
+    if (!deleted.some(d => d.id === product.id)) {
+      deleted.push({ id: product.id, sku: norm(product.sku), name: norm(product.name) })
+      saveDeleted(deleted)
+    }
+    // Remove from state + localStorage + IndexedDB images
+    setProductsPersisted(prev => prev.filter(p => !isSameProduct(p, product)))
+  }, [setProductsPersisted])
+
   const resetProducts = useCallback(() => {
     try { localStorage.removeItem(STORAGE_KEY) } catch {}
     setProducts([])
   }, [])
 
   return (
-    <ProductsContext.Provider value={{ products, setProducts: setProductsPersisted, resetProducts }}>
+    <ProductsContext.Provider value={{ products, setProducts: setProductsPersisted, resetProducts, deleteProduct }}>
       {children}
     </ProductsContext.Provider>
   )
