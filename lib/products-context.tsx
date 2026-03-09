@@ -47,25 +47,36 @@ const norm = (s?: string) => (s ?? '').toLowerCase().trim()
 
 /**
  * Three-pass dedup: id → sku → normalized name.
- * Later entries win so local data (appended last) takes precedence over Sheets data.
+ * When two products share a key, the later entry wins for all fields EXCEPT
+ * imageUrl — whichever entry has an imageUrl keeps it.
  */
+function mergeTwo(a: Product, b: Product): Product {
+  return { ...a, ...b, imageUrl: b.imageUrl ?? a.imageUrl }
+}
+
 function dedupe(products: Product[]): Product[] {
   // Pass 1 — exact id
   const byId = new Map<string, Product>()
-  for (const p of products) if (p.id) byId.set(p.id, p)
-  // Pass 2 — non-empty SKU (catches same product saved with different ids)
+  for (const p of products) {
+    if (!p.id) continue
+    const existing = byId.get(p.id)
+    byId.set(p.id, existing ? mergeTwo(existing, p) : p)
+  }
+  // Pass 2 — non-empty SKU
   const bySku = new Map<string, Product>()
   for (const p of byId.values()) {
     const key = norm(p.sku)
-    if (key) bySku.set(key, p)
-    else bySku.set(`__id__${p.id}`, p) // no SKU → keep, use id as fallback key
+    const slot = key || `__id__${p.id}`
+    const existing = bySku.get(slot)
+    bySku.set(slot, existing ? mergeTwo(existing, p) : p)
   }
-  // Pass 3 — normalized name (catches casing / whitespace variants)
+  // Pass 3 — normalized name
   const byName = new Map<string, Product>()
   for (const p of bySku.values()) {
     const key = norm(p.name)
-    if (key) byName.set(key, p)
-    else byName.set(`__sku__${norm(p.sku)}__id__${p.id}`, p)
+    const slot = key || `__sku__${norm(p.sku)}__id__${p.id}`
+    const existing = byName.get(slot)
+    byName.set(slot, existing ? mergeTwo(existing, p) : p)
   }
   return Array.from(byName.values())
 }
@@ -189,6 +200,21 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
           const localOnly = prev.filter(p => !sheetsProducts.some(sp => isSameProduct(p, sp)))
           return dedupe([...merged, ...localOnly])
         })
+
+        // 5. Final safety-net: re-hydrate any products still missing images from IndexedDB.
+        //    Runs after the Sheets merge so it catches products whose IDs changed during merge.
+        if (!cancelled) {
+          const freshImages = await loadAllImages()
+          if (!cancelled && Object.keys(freshImages).length > 0) {
+            setProducts(current =>
+              current.map(p =>
+                !p.imageUrl && freshImages[p.id]
+                  ? { ...p, imageUrl: freshImages[p.id] }
+                  : p
+              )
+            )
+          }
+        }
       } catch { /* GAS unavailable — keep local data */ }
     }
 
