@@ -146,13 +146,14 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded)) } catch {}
       }
 
-      // 3. Hydrate images from IndexedDB
-      try {
-        const idbImages = await loadAllImages()
-        if (Object.keys(idbImages).length > 0) {
-          loaded = loaded.map(p => ({ ...p, imageUrl: idbImages[p.id] ?? p.imageUrl }))
-        }
-      } catch {}
+      // 3. Load all IndexedDB images once — reused in both local hydration and Sheets merge
+      let idbImages: Record<string, string> = {}
+      try { idbImages = await loadAllImages() } catch {}
+
+      // Hydrate local products with IndexedDB images
+      if (Object.keys(idbImages).length > 0) {
+        loaded = loaded.map(p => ({ ...p, imageUrl: idbImages[p.id] ?? p.imageUrl }))
+      }
 
       if (cancelled) return
       setProducts(loaded)
@@ -169,9 +170,15 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
           const merged = sheetsProducts.map((sp: Product) => {
             // Match by id, sku, or normalized name — in that priority order
             const local = prev.find(p => isSameProduct(p, sp))
+            // Image priority:
+            //  1. Local base64 in memory (uploaded by user, not sent to Sheets)
+            //  2. IndexedDB image by Sheets id (survives logout — idbImages persists)
+            //  3. IndexedDB image by old local id (when ids differ after dedup)
+            //  4. Sheets Drive URL
+            const idbImg = idbImages[sp.id] ?? (local ? idbImages[local.id] : undefined)
             const imageUrl = local?.imageUrl?.startsWith('data:')
               ? local.imageUrl
-              : sp.imageUrl ?? local?.imageUrl
+              : idbImg ?? sp.imageUrl ?? local?.imageUrl
             return {
               ...sp,
               ...(imageUrl ? { imageUrl } : {}),
