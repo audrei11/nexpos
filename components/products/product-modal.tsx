@@ -727,8 +727,14 @@ export function ProductModal({ isOpen, product, onClose, onSave }: ProductModalP
                         if (!ing) return null
                         return (
                           <div key={item.ingredientId} className="flex items-center gap-3 rounded-xl border border-surface-100 bg-white px-3 py-2.5">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
-                              <FlaskConical className="h-4 w-4 text-emerald-600" />
+                            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 overflow-hidden text-base">
+                              {ing.imageUrl ? (
+                                <img src={ing.imageUrl} alt={ing.name} className="h-full w-full object-cover" />
+                              ) : ing.emoji ? (
+                                ing.emoji
+                              ) : (
+                                <FlaskConical className="h-4 w-4 text-emerald-600" />
+                              )}
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-semibold text-surface-900">{ing.name}</p>

@@ -48,14 +48,22 @@ export function IngredientsProvider({ children }: { children: React.ReactNode })
     []
   )
 
-  // On mount: fetch from Sheets (source of truth for ingredient stock)
+  // On mount: fetch from Sheets (source of truth for ingredient stock/name/unit/cost)
+  // Local emoji and imageUrl are preserved — they are not stored in Sheets
   useEffect(() => {
     fetchFromSheetsProxy('getIngredients').then(rows => {
       if (!rows.length) return
       const sheetsIngredients = rows
         .map(mapRowToIngredient)
         .filter(i => i.id)
-      setIngredientsPersisted(sheetsIngredients)
+      setIngredientsPersisted(prev => sheetsIngredients.map(sheetsIng => {
+        const local = prev.find(l => l.id === sheetsIng.id)
+        return {
+          ...sheetsIng,
+          emoji:    local?.emoji,    // preserve local-only fields
+          imageUrl: local?.imageUrl, // base64 image not stored in Sheets
+        }
+      }))
     }).catch(() => { /* GAS unavailable — keep localStorage data */ })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -6,6 +6,8 @@ export interface Ingredient {
   stock: number
   minStock: number
   costPerUnit: number
+  emoji?: string      // visual emoji icon for quick identification
+  imageUrl?: string   // base64 photo — stored in nexpos_ingredients (NOT IndexedDB)
   createdAt: string
   updatedAt: string
 }

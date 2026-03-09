@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { Plus, Search, FlaskConical, ArrowUpDown } from 'lucide-react'
+import { Plus, Search, FlaskConical, LayoutGrid, List } from 'lucide-react'
 import { Header } from '@/components/layout/header'
 import { Badge } from '@/components/ui/badge'
 import { IngredientModal } from '@/components/ingredients/ingredient-modal'
@@ -11,12 +11,124 @@ import { saveIngredientToSheets, logIngredientUsage } from '@/lib/sheets'
 import type { Ingredient } from '@/lib/types'
 import toast from 'react-hot-toast'
 
+// ─── Ingredient Card (grid view) ─────────────────────────────────────────
+function IngredientCard({
+  ingredient,
+  onEdit,
+  restockVal,
+  onRestockChange,
+  onRestock,
+}: {
+  ingredient: Ingredient
+  onEdit: () => void
+  restockVal: string
+  onRestockChange: (val: string) => void
+  onRestock: () => void
+}) {
+  const isOut  = ingredient.stock === 0
+  const isLow  = !isOut && ingredient.stock <= ingredient.minStock
+  const pct    = Math.min(100, Math.round((ingredient.stock / Math.max(ingredient.minStock * 4, 1)) * 100))
+  const barColor = isOut ? 'bg-rose-400' : isLow ? 'bg-amber-400' : 'bg-emerald-500'
+
+  return (
+    <div className="bg-white rounded-2xl border border-surface-100 shadow-card flex flex-col overflow-hidden group/card">
+      {/* Image / Emoji / Icon — clickable to edit */}
+      <button
+        type="button"
+        onClick={onEdit}
+        className="relative w-full aspect-square bg-emerald-50 hover:bg-emerald-100/70 transition-colors overflow-hidden"
+      >
+        {ingredient.imageUrl ? (
+          <img
+            src={ingredient.imageUrl}
+            alt={ingredient.name}
+            className="h-full w-full object-cover group-hover/card:scale-105 transition-transform duration-300"
+            onError={e => {
+              e.currentTarget.style.display = 'none'
+              const span = document.createElement('span')
+              span.className = 'absolute inset-0 flex items-center justify-center text-4xl'
+              span.textContent = ingredient.emoji ?? '🧪'
+              e.currentTarget.parentElement?.appendChild(span)
+            }}
+          />
+        ) : ingredient.emoji ? (
+          <span className="absolute inset-0 flex items-center justify-center text-4xl group-hover/card:scale-110 transition-transform duration-300">
+            {ingredient.emoji}
+          </span>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <FlaskConical className="h-10 w-10 text-emerald-300 group-hover/card:scale-110 transition-transform duration-300" />
+          </div>
+        )}
+
+        {/* Status pill */}
+        <span className={cn(
+          'absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full text-white shadow-sm',
+          isOut ? 'bg-rose-500' : isLow ? 'bg-amber-400' : 'bg-emerald-500'
+        )}>
+          {isOut ? 'Out' : isLow ? 'Low' : 'OK'}
+        </span>
+      </button>
+
+      {/* Info + restock */}
+      <div className="p-3 flex flex-col gap-2">
+        <div>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-left w-full"
+          >
+            <p className="text-sm font-bold text-surface-900 leading-tight line-clamp-2 hover:text-brand-600 transition-colors">
+              {ingredient.name}
+            </p>
+          </button>
+          <p className={cn(
+            'text-xs font-semibold num-display mt-0.5',
+            isOut ? 'text-rose-500' : isLow ? 'text-amber-500' : 'text-surface-400'
+          )}>
+            {ingredient.stock} {ingredient.unit}
+          </p>
+        </div>
+
+        {/* Stock bar */}
+        <div className="h-1 rounded-full bg-surface-100 overflow-hidden">
+          <div
+            className={cn('h-full rounded-full transition-all duration-500', barColor)}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+
+        {/* Restock row */}
+        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+          <input
+            type="number" min="0.1" step="0.1"
+            placeholder="Qty"
+            value={restockVal}
+            onChange={e => onRestockChange(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && onRestock()}
+            className="flex-1 min-w-0 h-7 rounded-lg border border-surface-200 bg-surface-50 px-2 text-xs text-center text-surface-800 num-display focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400 transition-all"
+          />
+          <button
+            onClick={onRestock}
+            disabled={!restockVal.trim() || parseFloat(restockVal) <= 0}
+            className="flex items-center gap-0.5 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-600 hover:bg-emerald-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+          >
+            <Plus className="h-3 w-3" />+
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────
 export default function IngredientsPage() {
   const { ingredients, setIngredients } = useIngredients()
-  const [search, setSearch] = useState('')
-  const [modalOpen, setModalOpen] = useState(false)
+  const [search, setSearch]             = useState('')
+  const [modalOpen, setModalOpen]       = useState(false)
   const [editingIngredient, setEditingIngredient] = useState<Ingredient | null>(null)
-  const [restockQtys, setRestockQtys] = useState<Record<string, string>>({})
+  const [restockQtys, setRestockQtys]   = useState<Record<string, string>>({})
+  const [viewMode, setViewMode]         = useState<'grid' | 'table'>('grid')
 
   const filtered = ingredients.filter(i =>
     !search.trim() || i.name.toLowerCase().includes(search.toLowerCase())
@@ -59,6 +171,7 @@ export default function IngredientsPage() {
         id: `ing_${Date.now()}`,
         name: data.name, unit: data.unit, stock: data.stock,
         minStock: data.minStock, costPerUnit: data.costPerUnit,
+        emoji: data.emoji, imageUrl: data.imageUrl,
         createdAt: now, updatedAt: now,
       }
       setIngredients(prev => [newIngredient, ...prev])
@@ -109,6 +222,11 @@ export default function IngredientsPage() {
     toast.success(`Restocked ${ingredient.name} — ${ingredient.stock} → ${quantityAfter} ${ingredient.unit}`)
   }, [restockQtys, setIngredients])
 
+  const openEdit = (ingredient: Ingredient) => {
+    setEditingIngredient(ingredient)
+    setModalOpen(true)
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <Header
@@ -129,7 +247,7 @@ export default function IngredientsPage() {
         {/* Summary Cards */}
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
           {[
-            { label: 'Inventory Value', value: formatCurrency(totalValue), color: 'text-brand-600', bg: 'bg-brand-50', icon: '💰', sub: 'Total ingredient cost' },
+            { label: 'Inventory Value', value: formatCurrency(totalValue), color: 'text-brand-600',   bg: 'bg-brand-50',   icon: '💰', sub: 'Total ingredient cost' },
             { label: 'Healthy Stock',   value: healthyStock.length,        color: 'text-emerald-600', bg: 'bg-emerald-50', icon: '✅', sub: 'Well-stocked' },
             { label: 'Low Stock',       value: lowStock.length,            color: 'text-amber-600',   bg: 'bg-amber-50',   icon: '⚠️', sub: 'Needs reorder' },
             { label: 'Out of Stock',    value: outOfStock.length,          color: 'text-rose-600',    bg: 'bg-rose-50',    icon: '🚫', sub: 'Immediate action' },
@@ -145,7 +263,7 @@ export default function IngredientsPage() {
           ))}
         </div>
 
-        {/* Search */}
+        {/* Search + View Toggle */}
         <div className="flex items-center gap-3 mb-4">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-surface-400" />
@@ -157,10 +275,38 @@ export default function IngredientsPage() {
               className="w-full h-9 pl-9 pr-3 rounded-xl border border-surface-200 bg-white text-sm text-surface-900 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400 transition-all"
             />
           </div>
+
+          {/* View mode toggle */}
+          <div className="flex items-center rounded-xl border border-surface-200 bg-white p-1 gap-1">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-lg transition-all',
+                viewMode === 'grid'
+                  ? 'bg-brand-gradient text-white shadow-sm'
+                  : 'text-surface-400 hover:text-surface-700 hover:bg-surface-50'
+              )}
+              title="Grid view"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-lg transition-all',
+                viewMode === 'table'
+                  ? 'bg-brand-gradient text-white shadow-sm'
+                  : 'text-surface-400 hover:text-surface-700 hover:bg-surface-50'
+              )}
+              title="List view"
+            >
+              <List className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
 
-        {/* Table */}
-        {filtered.length === 0 ? (
+        {/* Empty state */}
+        {filtered.length === 0 && (
           <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-16 text-center">
             <div className="flex flex-col items-center gap-3 text-surface-400">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-100">
@@ -184,18 +330,33 @@ export default function IngredientsPage() {
               )}
             </div>
           </div>
-        ) : (
+        )}
+
+        {/* ── Grid View ──────────────────────────────────────────────────── */}
+        {filtered.length > 0 && viewMode === 'grid' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+            {filtered.map(ingredient => (
+              <IngredientCard
+                key={ingredient.id}
+                ingredient={ingredient}
+                onEdit={() => openEdit(ingredient)}
+                restockVal={restockQtys[ingredient.id] ?? ''}
+                onRestockChange={val => setRestockQtys(prev => ({ ...prev, [ingredient.id]: val }))}
+                onRestock={() => handleRestock(ingredient)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── Table View ─────────────────────────────────────────────────── */}
+        {filtered.length > 0 && viewMode === 'table' && (
           <div className="bg-white rounded-2xl border border-surface-100 shadow-card overflow-hidden">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-surface-100 bg-surface-50/50">
                   <th className="px-6 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Ingredient</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Unit</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-surface-500 uppercase tracking-wider">
-                    <button className="flex items-center gap-1 ml-auto hover:text-surface-700">
-                      In Stock <ArrowUpDown className="h-3 w-3" />
-                    </button>
-                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-surface-500 uppercase tracking-wider">In Stock</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-surface-500 uppercase tracking-wider">Min Level</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Stock Level</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-surface-500 uppercase tracking-wider">Cost/Unit</th>
@@ -205,21 +366,38 @@ export default function IngredientsPage() {
               </thead>
               <tbody className="divide-y divide-surface-50">
                 {filtered.map(ingredient => {
-                  const isOut  = ingredient.stock === 0
-                  const isLow  = !isOut && ingredient.stock <= ingredient.minStock
-                  const pct    = stockPct(ingredient.stock, ingredient.minStock)
+                  const isOut    = ingredient.stock === 0
+                  const isLow    = !isOut && ingredient.stock <= ingredient.minStock
+                  const pct      = stockPct(ingredient.stock, ingredient.minStock)
                   const barColor = isOut ? 'bg-rose-400' : isLow ? 'bg-amber-400' : 'bg-emerald-500'
                   const restockVal = restockQtys[ingredient.id] ?? ''
                   return (
                     <tr
                       key={ingredient.id}
                       className="hover:bg-surface-50/50 transition-colors cursor-pointer"
-                      onClick={() => { setEditingIngredient(ingredient); setModalOpen(true) }}
+                      onClick={() => openEdit(ingredient)}
                     >
                       <td className="px-6 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                            <FlaskConical className="h-4 w-4" />
+                          {/* Image / emoji / icon */}
+                          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50 overflow-hidden text-lg">
+                            {ingredient.imageUrl ? (
+                              <img
+                                src={ingredient.imageUrl}
+                                alt={ingredient.name}
+                                className="h-full w-full object-cover"
+                                onError={e => {
+                                  e.currentTarget.style.display = 'none'
+                                  const span = document.createElement('span')
+                                  span.textContent = ingredient.emoji ?? '🧪'
+                                  e.currentTarget.parentElement?.appendChild(span)
+                                }}
+                              />
+                            ) : ingredient.emoji ? (
+                              ingredient.emoji
+                            ) : (
+                              <FlaskConical className="h-4 w-4 text-emerald-600" />
+                            )}
                           </div>
                           <p className="text-sm font-semibold text-surface-900">{ingredient.name}</p>
                         </div>
@@ -256,7 +434,7 @@ export default function IngredientsPage() {
                       </td>
                       <td className="px-4 py-3.5">
                         {isOut ? (
-                          <Badge variant="danger" size="sm" dot>Out of Stock</Badge>
+                          <Badge variant="danger"  size="sm" dot>Out of Stock</Badge>
                         ) : isLow ? (
                           <Badge variant="warning" size="sm" dot>Low Stock</Badge>
                         ) : (
