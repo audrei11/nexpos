@@ -8,6 +8,7 @@ import {
   deleteIngredientImage,
   loadAllIngredientImages,
 } from '@/lib/ingredient-image-store'
+import { readUserStorage, writeUserStorage } from '@/lib/storage'
 
 interface IngredientsContextValue {
   ingredients: Ingredient[]
@@ -19,14 +20,15 @@ interface IngredientsContextValue {
 
 const IngredientsContext = createContext<IngredientsContextValue | null>(null)
 
-const STORAGE_KEY = 'nexpos_ingredients'
-const BACKUP_KEY  = 'nexpos_ingredients_backup'
+// Key bases — actual keys are namespaced per-user via readUserStorage / writeUserStorage
+const INGREDIENTS_BASE = 'ingredients'
+const BACKUP_BASE      = 'ingredients_backup'
 
 /** Write ingredients to both the primary and backup localStorage keys. */
 function persistIngredients(list: Ingredient[]): void {
   const json = JSON.stringify(stripBase64Images(list))
-  try { localStorage.setItem(STORAGE_KEY, json) } catch {}
-  try { localStorage.setItem(BACKUP_KEY,  json) } catch {}
+  writeUserStorage(INGREDIENTS_BASE, json)
+  writeUserStorage(BACKUP_BASE,      json)
 }
 
 // ─── Starter seed ─────────────────────────────────────────────────────────
@@ -131,8 +133,8 @@ export function IngredientsProvider({ children }: { children: React.ReactNode })
   const [ingredients, rawSetIngredients] = useState<Ingredient[]>(() => {
     try {
       // Try primary key first, fall back to backup if primary is missing/empty
-      const primary = localStorage.getItem(STORAGE_KEY)
-      const raw = primary || localStorage.getItem(BACKUP_KEY)
+      const primary = readUserStorage(INGREDIENTS_BASE)
+      const raw = primary || readUserStorage(BACKUP_BASE)
       if (raw) {
         const parsed: Ingredient[] = JSON.parse(raw)
         if (parsed.length > 0) {

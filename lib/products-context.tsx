@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 import type { Product } from '@/lib/types'
 import { fetchFromSheetsProxy } from '@/lib/sheets'
 import { saveImage, loadAllImages, deleteImage } from '@/lib/image-store'
+import { readUserStorage, writeUserStorage, removeUserStorage } from '@/lib/storage'
 
 interface ProductsContextValue {
   products: Product[]
@@ -14,8 +15,9 @@ interface ProductsContextValue {
 
 const ProductsContext = createContext<ProductsContextValue | null>(null)
 
-const STORAGE_KEY   = 'nexpos_products'
-const DELETED_KEY   = 'nexpos_deleted_products'
+// Key bases — actual keys are namespaced per-user via readUserStorage / writeUserStorage
+const PRODUCTS_BASE = 'products'
+const DELETED_BASE  = 'deleted_products'
 
 // ── Deleted-product registry ─────────────────────────────────────────────────
 // Persists which products were explicitly deleted so they are never restored
@@ -23,10 +25,10 @@ const DELETED_KEY   = 'nexpos_deleted_products'
 interface DeletedRecord { id: string; sku: string; name: string }
 
 function loadDeleted(): DeletedRecord[] {
-  try { return JSON.parse(localStorage.getItem(DELETED_KEY) ?? '[]') } catch { return [] }
+  try { return JSON.parse(readUserStorage(DELETED_BASE) ?? '[]') } catch { return [] }
 }
 function saveDeleted(records: DeletedRecord[]): void {
-  try { localStorage.setItem(DELETED_KEY, JSON.stringify(records)) } catch {}
+  writeUserStorage(DELETED_BASE, JSON.stringify(records))
 }
 function isDeletedProduct(p: Product, deleted: DeletedRecord[]): boolean {
   const pSku  = norm(p.sku);  const pName = norm(p.name)
@@ -147,11 +149,14 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
           }
         })
 
+        // Primary: keep base64 images inline in localStorage so they survive reload
+        // without depending on IndexedDB availability.
+        // Fallback: strip base64 if quota is exceeded, then IDB acts as the store.
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(stripBase64(next)))
+          writeUserStorage(PRODUCTS_BASE, JSON.stringify(next))
         } catch {
           try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(next.map(p => ({ ...p, imageUrl: undefined }))))
+            writeUserStorage(PRODUCTS_BASE, JSON.stringify(stripBase64(next)))
           } catch {}
         }
 
@@ -168,10 +173,10 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false
 
     async function init() {
-      // 1. Load + dedupe from localStorage
+      // 1. Load + dedupe from localStorage (namespaced per user, migrates legacy key)
       let loaded: Product[] = []
       try {
-        const stored = localStorage.getItem(STORAGE_KEY)
+        const stored = readUserStorage(PRODUCTS_BASE)
         if (stored) {
           const parsed: Product[] = JSON.parse(stored)
           loaded = dedupe(parsed.map(p => ({
@@ -181,24 +186,27 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {}
 
-      // 2. Migrate legacy base64 images → IndexedDB
-      const toMigrate = loaded.filter(p => p.imageUrl?.startsWith('data:'))
-      if (toMigrate.length > 0) {
-        await Promise.all(toMigrate.map(p => saveImage(p.id, p.imageUrl!).catch(() => {})))
-        loaded = stripBase64(loaded)
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded)) } catch {}
-      }
-
-      // 3. Load all IndexedDB images once — reused in both local hydration and Sheets merge
+      // 2. Load all IndexedDB images — used as fallback for products whose
+      //    imageUrl is missing from localStorage (e.g. data saved by an older
+      //    version of the app that stripped base64 before writing to localStorage).
       let idbImages: Record<string, string> = {}
       try { idbImages = await loadAllImages() } catch {}
 
-      // Hydrate local products with IndexedDB images (try id then sku key)
+      // Hydrate products that have no imageUrl with IDB fallback (try id then sku key)
+      let recoveredFromIdb = false
       if (Object.keys(idbImages).length > 0) {
-        loaded = loaded.map(p => ({
-          ...p,
-          imageUrl: idbImages[p.id] ?? (p.sku ? idbImages[`sku:${norm(p.sku)}`] : undefined) ?? p.imageUrl,
-        }))
+        loaded = loaded.map(p => {
+          if (p.imageUrl) return p   // already has an image — skip
+          const img = idbImages[p.id] ?? (p.sku ? idbImages[`sku:${norm(p.sku)}`] : undefined)
+          if (img) { recoveredFromIdb = true; return { ...p, imageUrl: img } }
+          return p
+        })
+      }
+
+      // If any images were recovered from IDB, persist them inline to localStorage
+      // so future reloads don't need IDB at all.
+      if (recoveredFromIdb) {
+        writeUserStorage(PRODUCTS_BASE, JSON.stringify(loaded))
       }
 
       if (cancelled) return
@@ -221,17 +229,16 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
             // Match by id, sku, or normalized name — in that priority order
             const local = prev.find(p => isSameProduct(p, sp))
             // Image priority:
-            //  1. Local base64 in memory (uploaded by user, not sent to Sheets)
-            //  2. IndexedDB image by Sheets id (survives logout — idbImages persists)
-            //  3. IndexedDB image by old local id (when ids differ after dedup)
-            //  4. Sheets Drive URL
-            const idbImg = idbImages[sp.id]
-              ?? (sp.sku ? idbImages[`sku:${norm(sp.sku)}`] : undefined)
-              ?? (local ? idbImages[local.id] : undefined)
-              ?? (local?.sku ? idbImages[`sku:${norm(local.sku)}`] : undefined)
-            const imageUrl = local?.imageUrl?.startsWith('data:')
-              ? local.imageUrl
-              : idbImg ?? sp.imageUrl ?? local?.imageUrl
+            //  1. Local imageUrl in memory (base64 or any URL already stored)
+            //  2. Sheets Drive URL (if local has none)
+            //  3. IndexedDB fallback (for data saved by older app versions)
+            const idbImg = !local?.imageUrl
+              ? (idbImages[sp.id]
+                  ?? (sp.sku ? idbImages[`sku:${norm(sp.sku)}`] : undefined)
+                  ?? (local ? idbImages[local.id] : undefined)
+                  ?? (local?.sku ? idbImages[`sku:${norm(local.sku)}`] : undefined))
+              : undefined
+            const imageUrl = local?.imageUrl ?? sp.imageUrl ?? idbImg
             return {
               ...sp,
               ...(imageUrl ? { imageUrl } : {}),
@@ -281,7 +288,7 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
   }, [setProductsPersisted])
 
   const resetProducts = useCallback(() => {
-    try { localStorage.removeItem(STORAGE_KEY) } catch {}
+    removeUserStorage(PRODUCTS_BASE)
     setProducts([])
   }, [])
 

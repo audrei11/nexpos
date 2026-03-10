@@ -205,7 +205,12 @@ export async function logSaleIngredientUsage(entry: SheetIngredientUsageEntry): 
  */
 export async function fetchFromSheetsProxy(action: 'getProducts' | 'getIngredients' | 'getIngredientUsage'): Promise<Record<string, unknown>[]> {
   try {
-    const res = await fetch(`/api/sheets?action=${action}`)
+    // Pass the active GAS URL to the server proxy so it works even when only
+    // NEXT_PUBLIC_GOOGLE_SHEETS_SCRIPT_URL is configured (no server-side env var).
+    const activeUrl = _scriptUrlOverride || process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SCRIPT_URL || ''
+    const params = new URLSearchParams({ action })
+    if (activeUrl) params.set('scriptUrl', activeUrl)
+    const res = await fetch(`/api/sheets?${params}`)
     if (!res.ok) return []
     const data: unknown = await res.json()
     return Array.isArray(data) ? (data as Record<string, unknown>[]) : []

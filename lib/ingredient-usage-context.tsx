@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import type { IngredientUsageEntry } from '@/lib/types'
 import { fetchFromSheetsProxy } from '@/lib/sheets'
+import { readUserStorage, writeUserStorage } from '@/lib/storage'
 
 interface IngredientUsageContextValue {
   usageEntries: IngredientUsageEntry[]
@@ -11,7 +12,7 @@ interface IngredientUsageContextValue {
 
 const IngredientUsageContext = createContext<IngredientUsageContextValue | null>(null)
 
-const USAGE_KEY = 'nexpos_ingredient_usage'
+const USAGE_BASE = 'ingredient_usage'
 
 function mapRowToUsageEntry(row: Record<string, unknown>): IngredientUsageEntry | null {
   const id = String(row.id ?? '')
@@ -38,7 +39,7 @@ export function IngredientUsageProvider({ children }: { children: React.ReactNod
   // Effect 1: load from localStorage after mount
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(USAGE_KEY)
+      const stored = readUserStorage(USAGE_BASE)
       if (stored) {
         const parsed = JSON.parse(stored)
         if (Array.isArray(parsed) && parsed.length > 0) setUsageEntries(parsed)
@@ -61,7 +62,7 @@ export function IngredientUsageProvider({ children }: { children: React.ReactNod
         const newFromSheets = sheetsEntries.filter(e => !localIds.has(e.id))
         if (newFromSheets.length === 0) return prev
         const merged = [...prev, ...newFromSheets]
-        try { localStorage.setItem(USAGE_KEY, JSON.stringify(merged)) } catch {}
+        try { writeUserStorage(USAGE_BASE, JSON.stringify(merged)) } catch {}
         return merged
       })
     }).catch(() => { /* GAS unavailable — keep localStorage data */ })
@@ -70,7 +71,7 @@ export function IngredientUsageProvider({ children }: { children: React.ReactNod
   const addUsageEntries = useCallback((entries: IngredientUsageEntry[]) => {
     setUsageEntries(prev => {
       const next = [...prev, ...entries]
-      try { localStorage.setItem(USAGE_KEY, JSON.stringify(next)) } catch {}
+      writeUserStorage(USAGE_BASE, JSON.stringify(next))
       return next
     })
   }, [])

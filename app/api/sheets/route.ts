@@ -10,7 +10,10 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const action = searchParams.get('action')
-  const scriptUrl = process.env.GOOGLE_SHEETS_SCRIPT_URL
+  // Accept scriptUrl from client (passed by fetchFromSheetsProxy via _scriptUrlOverride
+  // or NEXT_PUBLIC_GOOGLE_SHEETS_SCRIPT_URL). Falls back to the server-side env var.
+  const clientScriptUrl = searchParams.get('scriptUrl')
+  const scriptUrl = clientScriptUrl || process.env.GOOGLE_SHEETS_SCRIPT_URL
 
   if (!scriptUrl || !action) {
     return NextResponse.json([])

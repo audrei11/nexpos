@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import type { Order } from '@/lib/types'
+import { readUserStorage, writeUserStorage } from '@/lib/storage'
 
 interface TransactionsContextValue {
   transactions: Order[]
@@ -11,7 +12,7 @@ interface TransactionsContextValue {
 
 const TransactionsContext = createContext<TransactionsContextValue | null>(null)
 
-const ORDERS_KEY = 'nexpos_orders'
+const ORDERS_BASE = 'orders'
 
 export function TransactionsProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<Order[]>([])
@@ -19,7 +20,7 @@ export function TransactionsProvider({ children }: { children: React.ReactNode }
   // Load persisted orders after mount (avoids SSR mismatch)
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(ORDERS_KEY)
+      const stored = readUserStorage(ORDERS_BASE)
       if (stored) {
         const parsed: Order[] = JSON.parse(stored)
         if (Array.isArray(parsed) && parsed.length > 0) setTransactions(parsed)
@@ -30,7 +31,7 @@ export function TransactionsProvider({ children }: { children: React.ReactNode }
   const addTransaction = useCallback((order: Order) => {
     setTransactions(prev => {
       const next = [order, ...prev]
-      try { localStorage.setItem(ORDERS_KEY, JSON.stringify(next)) } catch {}
+      writeUserStorage(ORDERS_BASE, JSON.stringify(next))
       return next
     })
   }, [])
