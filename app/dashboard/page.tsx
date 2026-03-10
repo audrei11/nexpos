@@ -121,7 +121,7 @@ export default function DashboardPage() {
   const [txPeriod, setTxPeriod] = useState<TxPeriod>('today')
   const { products } = useProducts()
   const { transactions } = useTransactions()
-  const { ingredients } = useIngredients()
+  const { lowStockIngredients } = useIngredients()
 
   const filteredTx = useMemo(() => {
     const start = getTxPeriodStart(txPeriod)
@@ -132,8 +132,7 @@ export default function DashboardPage() {
 
   const lowStockProducts   = products.filter(p => p.stock <= (p.minStock ?? 5) && p.stock > 0)
   const outOfStockProducts = products.filter(p => p.stock === 0)
-  const lowIngredients     = ingredients.filter(i => i.stock > 0 && i.stock <= i.minStock)
-  const outOfIngredients   = ingredients.filter(i => i.stock === 0)
+  // lowStockIngredients comes from context (minStock > 0 && stock <= minStock)
 
   // ── Today KPIs (computed from live transactions) ─────────────────────
   const kpis = useMemo(() => {
@@ -248,15 +247,15 @@ export default function DashboardPage() {
           />
           <StatCard
             title="Low Ingredients"
-            value={lowIngredients.length}
+            value={lowStockIngredients.filter(i => i.stock > 0).length}
             change={0}
-            changeLabel={`${outOfIngredients.length} out of stock`}
+            changeLabel={`${lowStockIngredients.filter(i => i.stock === 0).length} out of stock`}
             icon={FlaskConical}
             accent="violet"
           />
           <StatCard
             title="Out of Ingredients"
-            value={outOfIngredients.length}
+            value={lowStockIngredients.filter(i => i.stock === 0).length}
             change={0}
             changeLabel="Needs restocking"
             icon={FlaskConical}
@@ -442,50 +441,108 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Inventory Alerts — 1/3 */}
-          <div className="bg-white rounded-2xl border border-surface-100 shadow-card">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
-              <h3 className="text-base font-semibold text-surface-900">Stock Alerts</h3>
-              <Badge variant="warning" dot>
-                {lowStockProducts.length + outOfStockProducts.length}
-              </Badge>
-            </div>
-            <div className="p-4 space-y-2">
-              {outOfStockProducts.map(p => (
-                <div key={p.id} className="flex items-center gap-3 rounded-xl bg-rose-50 border border-rose-100 px-3 py-2.5">
-                  <span className="text-xl flex-shrink-0">{p.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-surface-800 truncate">{p.name}</p>
-                    <p className="text-xs text-rose-600 font-medium">Out of stock</p>
+          {/* Right column — product alerts + ingredient alerts stacked */}
+          <div className="flex flex-col gap-4">
+
+            {/* Product Stock Alerts */}
+            <div className="bg-white rounded-2xl border border-surface-100 shadow-card">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
+                <h3 className="text-base font-semibold text-surface-900">Stock Alerts</h3>
+                <Badge variant="warning" dot>
+                  {lowStockProducts.length + outOfStockProducts.length}
+                </Badge>
+              </div>
+              <div className="p-4 space-y-2">
+                {outOfStockProducts.map(p => (
+                  <div key={p.id} className="flex items-center gap-3 rounded-xl bg-rose-50 border border-rose-100 px-3 py-2.5">
+                    <span className="text-xl flex-shrink-0">{p.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-surface-800 truncate">{p.name}</p>
+                      <p className="text-xs text-rose-600 font-medium">Out of stock</p>
+                    </div>
+                    <Badge variant="danger" size="sm">0</Badge>
                   </div>
-                  <Badge variant="danger" size="sm">0</Badge>
-                </div>
-              ))}
-              {lowStockProducts.map(p => (
-                <div key={p.id} className="flex items-center gap-3 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2.5">
-                  <span className="text-xl flex-shrink-0">{p.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-surface-800 truncate">{p.name}</p>
-                    <p className="text-xs text-amber-600 font-medium">Low stock</p>
+                ))}
+                {lowStockProducts.map(p => (
+                  <div key={p.id} className="flex items-center gap-3 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2.5">
+                    <span className="text-xl flex-shrink-0">{p.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-surface-800 truncate">{p.name}</p>
+                      <p className="text-xs text-amber-600 font-medium">Low stock</p>
+                    </div>
+                    <Badge variant="warning" size="sm">{p.stock}</Badge>
                   </div>
-                  <Badge variant="warning" size="sm">{p.stock}</Badge>
-                </div>
-              ))}
-              {lowStockProducts.length + outOfStockProducts.length === 0 && (
-                <div className="flex flex-col items-center gap-2 py-8 text-center text-surface-400">
-                  <Package className="h-8 w-8 opacity-30" />
-                  <p className="text-sm">All stock levels OK</p>
-                </div>
-              )}
+                ))}
+                {lowStockProducts.length + outOfStockProducts.length === 0 && (
+                  <div className="flex flex-col items-center gap-2 py-8 text-center text-surface-400">
+                    <Package className="h-8 w-8 opacity-30" />
+                    <p className="text-sm">All stock levels OK</p>
+                  </div>
+                )}
+              </div>
+              <div className="px-4 pb-4">
+                <Link
+                  href="/dashboard/inventory"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-surface-200 py-2.5 text-sm font-semibold text-surface-600 hover:bg-surface-50 hover:text-brand-600 hover:border-brand-200 transition-all"
+                >
+                  View Inventory <ChevronRight className="h-4 w-4" />
+                </Link>
+              </div>
             </div>
-            <div className="px-4 pb-4">
-              <Link
-                href="/dashboard/inventory"
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-surface-200 py-2.5 text-sm font-semibold text-surface-600 hover:bg-surface-50 hover:text-brand-600 hover:border-brand-200 transition-all"
-              >
-                View Inventory <ChevronRight className="h-4 w-4" />
-              </Link>
+
+            {/* Low Stock Ingredients */}
+            <div className="bg-white rounded-2xl border border-surface-100 shadow-card">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
+                <h3 className="text-base font-semibold text-surface-900">Low Stock Ingredients</h3>
+                {lowStockIngredients.length > 0 && (
+                  <Badge variant="warning" dot>{lowStockIngredients.length}</Badge>
+                )}
+              </div>
+              <div className="p-4 space-y-2 max-h-[240px] overflow-y-auto">
+                {lowStockIngredients.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-8 text-center text-surface-400">
+                    <FlaskConical className="h-8 w-8 opacity-30" />
+                    <p className="text-sm">All ingredients are sufficiently stocked.</p>
+                  </div>
+                ) : (
+                  lowStockIngredients.map(i => {
+                    const isOut = i.stock === 0
+                    return (
+                      <div
+                        key={i.id}
+                        className={cn(
+                          'flex items-center gap-3 rounded-xl px-3 py-2.5 border',
+                          isOut
+                            ? 'bg-rose-50 border-rose-100'
+                            : 'bg-amber-50 border-amber-100'
+                        )}
+                      >
+                        <span className="text-lg flex-shrink-0">{i.emoji ?? '🧪'}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-surface-800 truncate">{i.name}</p>
+                          <p className={cn('text-xs font-medium', isOut ? 'text-rose-600' : 'text-amber-600')}>
+                            {isOut ? 'Out of stock' : `${i.stock} ${i.unit} remaining`}
+                          </p>
+                        </div>
+                        {isOut
+                          ? <Badge variant="danger"  size="sm">0</Badge>
+                          : <Badge variant="warning" size="sm">{i.stock}</Badge>
+                        }
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+              <div className="px-4 pb-4">
+                <Link
+                  href="/dashboard/ingredients"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-surface-200 py-2.5 text-sm font-semibold text-surface-600 hover:bg-surface-50 hover:text-brand-600 hover:border-brand-200 transition-all"
+                >
+                  View Ingredients <ChevronRight className="h-4 w-4" />
+                </Link>
+              </div>
             </div>
+
           </div>
         </div>
       </div>

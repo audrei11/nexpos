@@ -436,6 +436,23 @@ export default function POSPage() {
   const total = taxable + taxAmount
 
   const addToCart = useCallback((product: Product) => {
+    // Check low-stock ingredient warning on first add only
+    const alreadyInCart = cart.some(i => i.product.id === product.id)
+    if (!alreadyInCart && product.recipe?.length) {
+      const lowWarnings = product.recipe
+        .map(ri => ingredients.find(i => i.id === ri.ingredientId))
+        .filter((ing): ing is NonNullable<typeof ing> =>
+          !!ing && ing.minStock > 0 && ing.stock > 0 && ing.stock <= ing.minStock
+        )
+      if (lowWarnings.length > 0) {
+        toast(`⚠ Low stock: ${lowWarnings.map(i => i.name).join(', ')}`, {
+          duration: 4000,
+          style: { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', fontWeight: 600 },
+          icon: '⚠️',
+        })
+      }
+    }
+
     setCart(prev => {
       const existing = prev.find(i => i.product.id === product.id)
       const currentQty = existing?.quantity ?? 0
@@ -450,7 +467,7 @@ export default function POSPage() {
       }
       return [...prev, { product, quantity: 1 }]
     })
-  }, [])
+  }, [cart, ingredients])
 
   const incQty = useCallback((productId: string) => {
     const available = products.find(p => p.id === productId)?.stock ?? 0

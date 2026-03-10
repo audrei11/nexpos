@@ -124,7 +124,7 @@ function IngredientCard({
 
 // ─── Main Page ─────────────────────────────────────────────────────────────
 export default function IngredientsPage() {
-  const { ingredients, setIngredients } = useIngredients()
+  const { ingredients, setIngredients, lowStockIngredients } = useIngredients()
   const { user } = useAuth()
   const canDelete = user?.role === 'admin' || user?.role === 'owner'
   const [search, setSearch]             = useState('')
@@ -145,7 +145,7 @@ export default function IngredientsPage() {
   const totalValue   = src.reduce((sum, i) => sum + i.costPerUnit * i.stock, 0)
   const lowStock     = src.filter(i => i.stock > 0 && i.stock <= i.minStock)
   const outOfStock   = src.filter(i => i.stock === 0)
-  const healthyStock = ingredients.filter(i => i.stock > i.minStock)
+  const healthyStock = src.filter(i => i.stock > i.minStock)
 
   const stockPct = (stock: number, min: number) =>
     Math.min(100, Math.round((stock / Math.max(min * 4, 1)) * 100))
@@ -285,6 +285,30 @@ export default function IngredientsPage() {
             </div>
           ))}
         </div>
+
+        {/* Low-stock alert banner — only shown after mount to avoid hydration mismatch */}
+        {mounted && lowStockIngredients.length > 0 && (
+          <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4">
+            <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-800">
+                {lowStockIngredients.length} ingredient{lowStockIngredients.length !== 1 ? 's are' : ' is'} running low
+              </p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                {lowStockIngredients.slice(0, 4).map(i =>
+                  i.stock === 0 ? `${i.name} (out)` : `${i.name} — ${i.stock} ${i.unit}`
+                ).join(' · ')}
+                {lowStockIngredients.length > 4 ? ` · +${lowStockIngredients.length - 4} more` : ''}
+              </p>
+            </div>
+            <button
+              onClick={() => setViewMode('table')}
+              className="text-xs font-semibold text-amber-700 hover:underline whitespace-nowrap flex-shrink-0 mt-0.5"
+            >
+              View list
+            </button>
+          </div>
+        )}
 
         {/* Search + View Toggle */}
         <div className="flex items-center gap-3 mb-4">

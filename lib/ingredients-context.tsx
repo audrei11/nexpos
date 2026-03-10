@@ -13,6 +13,8 @@ interface IngredientsContextValue {
   ingredients: Ingredient[]
   setIngredients: React.Dispatch<React.SetStateAction<Ingredient[]>>
   resetIngredients: () => void
+  /** Ingredients where minStock > 0 and stock <= minStock (low or out). */
+  lowStockIngredients: Ingredient[]
 }
 
 const IngredientsContext = createContext<IngredientsContextValue | null>(null)
@@ -241,8 +243,12 @@ export function IngredientsProvider({ children }: { children: React.ReactNode })
     rawSetIngredients([])
   }, [])
 
+  const lowStockIngredients = ingredients.filter(
+    i => i.minStock > 0 && i.stock <= i.minStock
+  )
+
   return (
-    <IngredientsContext.Provider value={{ ingredients, setIngredients, resetIngredients }}>
+    <IngredientsContext.Provider value={{ ingredients, setIngredients, resetIngredients, lowStockIngredients }}>
       {children}
     </IngredientsContext.Provider>
   )
