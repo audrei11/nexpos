@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Plus, Search, FlaskConical, LayoutGrid, List, Pencil, Trash2, AlertTriangle } from 'lucide-react'
 import { Header } from '@/components/layout/header'
 import { Badge } from '@/components/ui/badge'
@@ -133,14 +133,18 @@ export default function IngredientsPage() {
   const [restockQtys, setRestockQtys]   = useState<Record<string, string>>({})
   const [viewMode, setViewMode]         = useState<'grid' | 'table'>('grid')
   const [deletingIngredient, setDeletingIngredient] = useState<Ingredient | null>(null)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   const filtered = ingredients.filter(i =>
     !search.trim() || i.name.toLowerCase().includes(search.toLowerCase())
   )
 
-  const totalValue   = ingredients.reduce((sum, i) => sum + i.costPerUnit * i.stock, 0)
-  const lowStock     = ingredients.filter(i => i.stock > 0 && i.stock <= i.minStock)
-  const outOfStock   = ingredients.filter(i => i.stock === 0)
+  // Use empty array until mounted to prevent SSR/client hydration mismatch
+  const src         = mounted ? ingredients : []
+  const totalValue   = src.reduce((sum, i) => sum + i.costPerUnit * i.stock, 0)
+  const lowStock     = src.filter(i => i.stock > 0 && i.stock <= i.minStock)
+  const outOfStock   = src.filter(i => i.stock === 0)
   const healthyStock = ingredients.filter(i => i.stock > i.minStock)
 
   const stockPct = (stock: number, min: number) =>
