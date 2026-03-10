@@ -3,16 +3,18 @@
 import { useState, useMemo } from 'react'
 import {
   Search, Plus, Package,
-  Pencil, Trash2,
+  Pencil, Trash2, ChefHat,
   X, AlertTriangle,
 } from 'lucide-react'
 import { Header } from '@/components/layout/header'
 import { ProductModal } from '@/components/products/product-modal'
+import { RecipeModal } from '@/components/products/recipe-modal'
 import { cn, formatCurrency } from '@/lib/utils'
 import { CATEGORIES } from '@/lib/mock-data'
-import { Product } from '@/lib/types'
+import { Product, RecipeItem } from '@/lib/types'
 import { saveProductToSheets, logInventoryChange, type SheetProduct } from '@/lib/sheets'
 import { useProducts } from '@/lib/products-context'
+import { useIngredients } from '@/lib/ingredients-context'
 import toast from 'react-hot-toast'
 
 type SortKey = 'name' | 'price' | 'stock'
@@ -41,6 +43,10 @@ function StatCard({ label, value, color }: {
 /* ─── page ─────────────────────────────────────────────────────── */
 export default function ProductsPage() {
   const { products, setProducts, deleteProduct } = useProducts()
+  const { ingredients } = useIngredients()
+
+  /* recipe */
+  const [recipeProduct, setRecipeProduct] = useState<Product | null>(null)
 
   /* filters */
   const [search, setSearch] = useState('')
@@ -57,6 +63,24 @@ export default function ProductsPage() {
 
   /* delete confirm */
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null)
+
+  /* ── save recipe ── */
+  const handleSaveRecipe = (productId: string, recipe: RecipeItem[]) => {
+    const now = new Date().toISOString()
+    setProducts(prev => prev.map(p =>
+      p.id === productId ? { ...p, recipe, updatedAt: now } : p
+    ))
+    // Mirror to nexpos_recipes for external lookups
+    try {
+      const stored: Record<string, RecipeItem[]> = JSON.parse(
+        localStorage.getItem('nexpos_recipes') ?? '{}'
+      )
+      stored[productId] = recipe
+      localStorage.setItem('nexpos_recipes', JSON.stringify(stored))
+    } catch {}
+    setRecipeProduct(null)
+    toast.success('Recipe saved')
+  }
 
   /* ── stats ── */
   const totalProducts  = products.length
@@ -388,6 +412,16 @@ export default function ProductsPage() {
                       <button
                         onClick={e => {
                           e.stopPropagation()
+                          setRecipeProduct(product)
+                        }}
+                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/90 text-amber-500 shadow hover:bg-white transition-all"
+                        title="Recipe"
+                      >
+                        <ChefHat className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
                           setDeletingProduct(product)
                         }}
                         className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/90 text-rose-500 shadow hover:bg-white transition-all"
@@ -448,6 +482,15 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
+
+      {/* ── Recipe Modal ── */}
+      <RecipeModal
+        isOpen={recipeProduct !== null}
+        product={recipeProduct}
+        ingredients={ingredients}
+        onClose={() => setRecipeProduct(null)}
+        onSave={handleSaveRecipe}
+      />
 
       {/* ── Product Modal ── */}
       <ProductModal
