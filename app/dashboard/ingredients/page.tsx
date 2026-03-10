@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { Plus, Search, FlaskConical, LayoutGrid, List } from 'lucide-react'
+import { Plus, Search, FlaskConical, LayoutGrid, List, Pencil, Trash2, AlertTriangle } from 'lucide-react'
 import { Header } from '@/components/layout/header'
 import { Badge } from '@/components/ui/badge'
 import { IngredientModal } from '@/components/ingredients/ingredient-modal'
@@ -132,6 +132,7 @@ export default function IngredientsPage() {
   const [editingIngredient, setEditingIngredient] = useState<Ingredient | null>(null)
   const [restockQtys, setRestockQtys]   = useState<Record<string, string>>({})
   const [viewMode, setViewMode]         = useState<'grid' | 'table'>('grid')
+  const [deletingIngredient, setDeletingIngredient] = useState<Ingredient | null>(null)
 
   const filtered = ingredients.filter(i =>
     !search.trim() || i.name.toLowerCase().includes(search.toLowerCase())
@@ -380,6 +381,7 @@ export default function IngredientsPage() {
                   <th className="px-4 py-3 text-right text-xs font-semibold text-surface-500 uppercase tracking-wider">Cost/Unit</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-surface-500 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-surface-500 uppercase tracking-wider">Restock</th>
+                  <th className="px-4 py-3 w-[72px]" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-50">
@@ -392,7 +394,7 @@ export default function IngredientsPage() {
                   return (
                     <tr
                       key={ingredient.id}
-                      className="hover:bg-surface-50/50 transition-colors cursor-pointer"
+                      className="group hover:bg-surface-50/50 transition-colors cursor-pointer"
                       onClick={() => openEdit(ingredient)}
                     >
                       <td className="px-6 py-3.5">
@@ -478,6 +480,28 @@ export default function IngredientsPage() {
                           </button>
                         </div>
                       </td>
+
+                      {/* ── Hover actions ── */}
+                      <td className="px-2 py-3.5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                          <button
+                            onClick={() => openEdit(ingredient)}
+                            className="flex h-8 w-8 items-center justify-center rounded-xl bg-white border border-surface-200 text-brand-600 shadow-sm hover:bg-brand-50 hover:border-brand-300 transition-all"
+                            title="Edit"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          {canDelete && (
+                            <button
+                              onClick={() => setDeletingIngredient(ingredient)}
+                              className="flex h-8 w-8 items-center justify-center rounded-xl bg-white border border-surface-200 text-rose-500 shadow-sm hover:bg-rose-50 hover:border-rose-300 transition-all"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   )
                 })}
@@ -494,6 +518,37 @@ export default function IngredientsPage() {
         onSave={handleSave}
         onDelete={canDelete && editingIngredient ? () => handleDelete(editingIngredient) : undefined}
       />
+
+      {/* ── Delete Confirm ── */}
+      {deletingIngredient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setDeletingIngredient(null)} />
+          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-card-lg p-6 animate-scale-in">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 mb-4">
+              <AlertTriangle className="h-6 w-6 text-rose-600" />
+            </div>
+            <h3 className="text-base font-bold text-surface-900">Delete Ingredient?</h3>
+            <p className="mt-1.5 text-sm text-surface-500">
+              <span className="font-semibold text-surface-700">"{deletingIngredient.name}"</span>{' '}
+              will be permanently removed. This action cannot be undone.
+            </p>
+            <div className="mt-5 flex gap-2.5">
+              <button
+                onClick={() => setDeletingIngredient(null)}
+                className="flex-1 h-10 rounded-xl border border-surface-200 text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { handleDelete(deletingIngredient); setDeletingIngredient(null) }}
+                className="flex-1 h-10 rounded-xl bg-rose-500 text-sm font-semibold text-white hover:bg-rose-600 transition-all shadow-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
