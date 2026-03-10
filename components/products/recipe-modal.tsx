@@ -5,9 +5,26 @@ import { X, Plus, Trash2, ChefHat } from 'lucide-react'
 import type { Product, Ingredient, RecipeItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
+// ─── Unit compatibility map ───────────────────────────────────────────────────
+// Defines which units are selectable based on the ingredient's stock unit.
+// Only units within the same family are offered (no cross-family conversion).
+const UNIT_OPTIONS: Record<string, string[]> = {
+  kg:  ['kg', 'g'],
+  g:   ['g', 'kg'],
+  L:   ['L', 'ml'],
+  ml:  ['ml', 'L'],
+  // All others (pcs, loaf, pack, etc.) → single option only
+}
+
+function getUnitOptions(stockUnit: string): string[] {
+  return UNIT_OPTIONS[stockUnit] ?? [stockUnit]
+}
+
+// ─── Local row state ──────────────────────────────────────────────────────────
 interface RecipeRow {
   ingredientId: string
   quantity: string
+  unit: string
 }
 
 interface RecipeModalProps {
@@ -24,10 +41,15 @@ export function RecipeModal({ isOpen, product, ingredients, onClose, onSave }: R
   useEffect(() => {
     if (isOpen && product) {
       setRows(
-        (product.recipe ?? []).map(r => ({
-          ingredientId: r.ingredientId,
-          quantity: String(r.quantityRequired),
-        }))
+        (product.recipe ?? []).map(r => {
+          const ing = ingredients.find(i => i.id === r.ingredientId)
+          return {
+            ingredientId: r.ingredientId,
+            quantity: String(r.quantityRequired),
+            // Prefer saved unit; fall back to ingredient's stock unit
+            unit: r.unit ?? ing?.unit ?? '',
+          }
+        })
       )
     }
   }, [isOpen, product])
@@ -37,13 +59,22 @@ export function RecipeModal({ isOpen, product, ingredients, onClose, onSave }: R
   const addRow = () => {
     const first = ingredients[0]
     if (!first) return
-    setRows(prev => [...prev, { ingredientId: first.id, quantity: '1' }])
+    setRows(prev => [...prev, { ingredientId: first.id, quantity: '1', unit: first.unit }])
   }
 
   const removeRow = (idx: number) => setRows(prev => prev.filter((_, i) => i !== idx))
 
-  const updateRow = (idx: number, field: keyof RecipeRow, value: string) =>
-    setRows(prev => prev.map((row, i) => i === idx ? { ...row, [field]: value } : row))
+  const updateRow = (idx: number, field: keyof RecipeRow, value: string) => {
+    setRows(prev => prev.map((row, i) => {
+      if (i !== idx) return row
+      // When ingredient changes, reset unit to that ingredient's stock unit
+      if (field === 'ingredientId') {
+        const ing = ingredients.find(g => g.id === value)
+        return { ...row, ingredientId: value, unit: ing?.unit ?? row.unit }
+      }
+      return { ...row, [field]: value }
+    }))
+  }
 
   const handleSave = () => {
     const recipe: RecipeItem[] = rows
@@ -51,6 +82,7 @@ export function RecipeModal({ isOpen, product, ingredients, onClose, onSave }: R
       .map(r => ({
         ingredientId: r.ingredientId,
         quantityRequired: parseFloat(r.quantity),
+        unit: r.unit || undefined,
       }))
     onSave(product.id, recipe)
   }
@@ -81,7 +113,7 @@ export function RecipeModal({ isOpen, product, ingredients, onClose, onSave }: R
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
           {rows.length > 0 && (
-            <div className="grid grid-cols-[1fr_90px_52px_32px] gap-2 px-1 mb-1">
+            <div className="grid grid-cols-[1fr_80px_76px_32px] gap-2 px-1 mb-1">
               <span className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Ingredient</span>
               <span className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Qty</span>
               <span className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">Unit</span>
@@ -91,8 +123,11 @@ export function RecipeModal({ isOpen, product, ingredients, onClose, onSave }: R
 
           {rows.map((row, idx) => {
             const ing = ingredients.find(i => i.id === row.ingredientId)
+            const unitOpts = getUnitOptions(ing?.unit ?? row.unit)
+
             return (
-              <div key={idx} className="grid grid-cols-[1fr_90px_52px_32px] gap-2 items-center">
+              <div key={idx} className="grid grid-cols-[1fr_80px_76px_32px] gap-2 items-center">
+                {/* Ingredient selector */}
                 <select
                   value={row.ingredientId}
                   onChange={e => updateRow(idx, 'ingredientId', e.target.value)}
@@ -104,17 +139,28 @@ export function RecipeModal({ isOpen, product, ingredients, onClose, onSave }: R
                     </option>
                   ))}
                 </select>
+
+                {/* Quantity */}
                 <input
                   type="number"
-                  min="0.01"
-                  step="0.01"
+                  min="0.001"
+                  step="0.001"
                   value={row.quantity}
                   onChange={e => updateRow(idx, 'quantity', e.target.value)}
                   className="h-9 rounded-xl border border-surface-200 bg-white px-2 text-sm text-center text-surface-900 num-display focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400 transition-all"
                 />
-                <div className="h-9 flex items-center justify-center rounded-xl bg-surface-100 text-[11px] font-mono text-surface-500 px-1">
-                  {ing?.unit ?? '—'}
-                </div>
+
+                {/* Unit — editable dropdown */}
+                <select
+                  value={row.unit}
+                  onChange={e => updateRow(idx, 'unit', e.target.value)}
+                  className="h-9 rounded-xl border border-surface-200 bg-white px-2 text-sm font-mono text-surface-700 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400 transition-all"
+                >
+                  {unitOpts.map(u => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+
                 <button
                   type="button"
                   onClick={() => removeRow(idx)}

@@ -179,12 +179,31 @@ export async function logIngredientUsage(log: SheetIngredientLog): Promise<void>
   })
 }
 
+// ─── Ingredient Usage Analytics (sale events) ─────────────────────────────────
+// Separate from the stock-change log above — this is one row per ingredient
+// per sold item, structured for the ingredient_usage analytics sheet.
+export interface SheetIngredientUsageEntry {
+  id: string
+  timestamp: string
+  transaction_id: string
+  product_id: string
+  product_name: string
+  ingredient_id: string
+  ingredient_name: string
+  quantity_used: number
+  unit: string
+}
+
+export async function logSaleIngredientUsage(entry: SheetIngredientUsageEntry): Promise<void> {
+  await postToSheets({ action: 'saveIngredientUsage', ...entry })
+}
+
 // ─── Read from Sheets (via Next.js proxy) ─────────────────────────────────────
 /**
  * Fetches rows from a GAS sheet via the /api/sheets proxy route.
  * Returns an empty array if unavailable (GAS not configured, network error, etc.)
  */
-export async function fetchFromSheetsProxy(action: 'getProducts' | 'getIngredients'): Promise<Record<string, unknown>[]> {
+export async function fetchFromSheetsProxy(action: 'getProducts' | 'getIngredients' | 'getIngredientUsage'): Promise<Record<string, unknown>[]> {
   try {
     const res = await fetch(`/api/sheets?action=${action}`)
     if (!res.ok) return []

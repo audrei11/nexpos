@@ -6,14 +6,16 @@ import {
   DollarSign, ShoppingCart,
 } from 'lucide-react'
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  AreaChart, Area, BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import { Header } from '@/components/layout/header'
 import { cn, formatCurrency, formatDateTime } from '@/lib/utils'
 import { CATEGORIES } from '@/lib/mock-data'
 import { useTransactions } from '@/lib/transactions-context'
 import { useProducts } from '@/lib/products-context'
+import { useIngredientUsage } from '@/lib/ingredient-usage-context'
 import toast from 'react-hot-toast'
 
 // Category colour palette (keyed by category id)
@@ -62,6 +64,47 @@ export default function ReportsPage() {
   const [period, setPeriod] = useState<Period>('7d')
   const { transactions } = useTransactions()
   const { products } = useProducts()
+  const { usageEntries } = useIngredientUsage()
+
+  // ── Ingredient usage — last 7 days ──────────────────────────────────────
+  const ingUsageLast7Days = useMemo(() => {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 6); cutoff.setHours(0, 0, 0, 0)
+    return usageEntries.filter(e => new Date(e.timestamp) >= cutoff)
+  }, [usageEntries])
+
+  // A. Top Used Ingredients — bar chart (aggregate by ingredient, last 7d)
+  const topUsedIngredients = useMemo(() => {
+    const map = new Map<string, { name: string; total: number; unit: string }>()
+    ingUsageLast7Days.forEach(e => {
+      const cur = map.get(e.ingredient_id)
+      if (cur) { cur.total += e.quantity_used }
+      else { map.set(e.ingredient_id, { name: e.ingredient_name, total: e.quantity_used, unit: e.unit }) }
+    })
+    return Array.from(map.values()).sort((a, b) => b.total - a.total).slice(0, 8)
+  }, [ingUsageLast7Days])
+
+  // B. Ingredient Usage Trend — line chart (daily totals per top-3 ingredients, last 7d)
+  const ingTrendData = useMemo(() => {
+    const top3 = topUsedIngredients.slice(0, 3).map(i => i.name)
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - (6 - i)); d.setHours(0, 0, 0, 0)
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    })
+    const buckets: Record<string, Record<string, number>> = {}
+    days.forEach(day => { buckets[day] = {} })
+    ingUsageLast7Days.forEach(e => {
+      if (!top3.includes(e.ingredient_name)) return
+      const day = new Date(e.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      if (!buckets[day]) return
+      buckets[day][e.ingredient_name] = (buckets[day][e.ingredient_name] ?? 0) + e.quantity_used
+    })
+    return days.map(day => ({ date: day, ...buckets[day] }))
+  }, [ingUsageLast7Days, topUsedIngredients])
+
+  const ingTrendLines = useMemo(() => topUsedIngredients.slice(0, 3).map((ing, i) => ({
+    name: ing.name,
+    color: ['#6366F1', '#10B981', '#F59E0B'][i],
+  })), [topUsedIngredients])
 
   // Only completed orders within the selected period
   const filteredTx = useMemo(() => {
@@ -383,6 +426,72 @@ export default function ReportsPage() {
               </table>
             </div>
           )}
+        </div>
+
+        {/* ── Ingredient Usage — Last 7 Days ─────────────────────────── */}
+        <div>
+          <h3 className="text-base font-semibold text-surface-900 mb-4">Ingredient Usage — Last 7 Days</h3>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
+            {/* A. Top Used Ingredients — bar chart */}
+            <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-6">
+              <h4 className="text-sm font-semibold text-surface-900 mb-1">Top Used Ingredients</h4>
+              <p className="text-xs text-surface-500 mb-5">Total quantity consumed per ingredient</p>
+              {topUsedIngredients.length === 0 ? (
+                <div className="flex items-center justify-center h-[200px] text-surface-400 text-sm">
+                  No ingredient usage recorded in the last 7 days
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={topUsedIngredients} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} width={110} />
+                    <Tooltip
+                      formatter={(v: number, _: string, props: { payload?: { unit?: string } }) =>
+                        [`${v} ${props.payload?.unit ?? ''}`, 'Used']
+                      }
+                      contentStyle={{ background: '#0F172A', border: 'none', borderRadius: 10, color: '#fff', fontSize: 12 }}
+                    />
+                    <Bar dataKey="total" fill="#6366F1" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* B. Ingredient Usage Trend — line chart (top 3) */}
+            <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-6">
+              <h4 className="text-sm font-semibold text-surface-900 mb-1">Usage Trend</h4>
+              <p className="text-xs text-surface-500 mb-5">Daily usage for top 3 ingredients</p>
+              {ingTrendLines.length === 0 ? (
+                <div className="flex items-center justify-center h-[200px] text-surface-400 text-sm">
+                  No usage trend data yet
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={ingTrendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: '#0F172A', border: 'none', borderRadius: 10, color: '#fff', fontSize: 12 }} />
+                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                    {ingTrendLines.map(line => (
+                      <Line
+                        key={line.name}
+                        type="monotone"
+                        dataKey={line.name}
+                        stroke={line.color}
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+          </div>
         </div>
 
       </div>

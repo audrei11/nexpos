@@ -1,3 +1,16 @@
+// ─── Ingredient Usage ─────────────────────────────────────────────────────
+export interface IngredientUsageEntry {
+  id: string
+  ingredient_id: string
+  ingredient_name: string
+  quantity_used: number
+  unit: string
+  transaction_id: string
+  product_id: string
+  product_name: string
+  timestamp: string
+}
+
 // ─── Ingredient ──────────────────────────────────────────────────────────
 export interface Ingredient {
   id: string
@@ -16,6 +29,7 @@ export interface Ingredient {
 export interface RecipeItem {
   ingredientId: string
   quantityRequired: number  // per 1 unit of product sold
+  unit?: string             // recipe unit (may differ from stock unit, e.g. g vs kg)
 }
 
 // ─── Product ────────────────────────────────────────────────────────────

@@ -15,8 +15,9 @@
  *   - customers
  *   - products
  *   - inventory_logs
- *   - ingredients       ← NEW
- *   - ingredient_logs   ← NEW
+ *   - ingredients
+ *   - ingredient_logs
+ *   - ingredient_usage  ← analytics: one row per ingredient per sale
  */
 
 // ── YOUR SPREADSHEET ID ────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ function doPost(e) {
       case 'saveIngredient':     handleSaveIngredient(ss, payload);    break;
       case 'updateIngredient':   handleUpdateIngredient(ss, payload);  break;
       case 'logIngredientUsage': handleIngredientLog(ss, payload);     break;
+      case 'saveIngredientUsage': handleSaveIngredientUsage(ss, payload); break;
       default:
         throw new Error('Unknown action: ' + action);
     }
@@ -84,6 +86,20 @@ function doGet(e) {
 
   if (action === 'getIngredients') {
     var sheet = ss.getSheetByName('ingredients');
+    if (!sheet || sheet.getLastRow() < 2)
+      return ContentService.createTextOutput('[]').setMimeType(ContentService.MimeType.JSON);
+    var data    = sheet.getDataRange().getValues();
+    var headers = data[0];
+    var rows    = data.slice(1).map(function(row) {
+      var obj = {};
+      headers.forEach(function(h, i) { obj[h] = row[i]; });
+      return obj;
+    });
+    return ContentService.createTextOutput(JSON.stringify(rows)).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'getIngredientUsage') {
+    var sheet = ss.getSheetByName('ingredient_usage');
     if (!sheet || sheet.getLastRow() < 2)
       return ContentService.createTextOutput('[]').setMimeType(ContentService.MimeType.JSON);
     var data    = sheet.getDataRange().getValues();
@@ -347,12 +363,33 @@ function handleIngredientLog(ss, p) {
   });
 }
 
+// One row per ingredient per sold item — feeds the Reports "Ingredient Usage" charts
+function handleSaveIngredientUsage(ss, p) {
+  var sheet = getOrCreateSheet(ss, 'ingredient_usage', [
+    'id', 'timestamp', 'transaction_id',
+    'product_id', 'product_name',
+    'ingredient_id', 'ingredient_name',
+    'quantity_used', 'unit'
+  ]);
+  appendRowObj(sheet, {
+    id:              p.id,
+    timestamp:       p.timestamp || new Date().toISOString(),
+    transaction_id:  p.transaction_id || '',
+    product_id:      p.product_id     || '',
+    product_name:    p.product_name   || '',
+    ingredient_id:   p.ingredient_id,
+    ingredient_name: p.ingredient_name,
+    quantity_used:   p.quantity_used,
+    unit:            p.unit           || ''
+  });
+}
+
 // ── STORE RESET HANDLER ────────────────────────────────────────────────────────
 
 function handleClearStoreData(ss) {
   var sheetNames = [
     'products', 'transactions', 'transaction_items',
-    'inventory_logs', 'customers', 'ingredients', 'ingredient_logs'
+    'inventory_logs', 'customers', 'ingredients', 'ingredient_logs', 'ingredient_usage'
   ];
   for (var i = 0; i < sheetNames.length; i++) {
     var sheet = ss.getSheetByName(sheetNames[i]);

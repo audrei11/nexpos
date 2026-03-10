@@ -8,11 +8,12 @@ import {
 } from 'lucide-react'
 import { cn, formatCurrency, generateOrderId } from '@/lib/utils'
 import { CATEGORIES } from '@/lib/mock-data'
-import type { CartItem, Product, PaymentMethod } from '@/lib/types'
-import { saveTransactionToSheets, saveProductToSheets, logInventoryChange, saveIngredientToSheets, logIngredientUsage } from '@/lib/sheets'
+import type { CartItem, Product, PaymentMethod, IngredientUsageEntry } from '@/lib/types'
+import { saveTransactionToSheets, saveProductToSheets, logInventoryChange, saveIngredientToSheets, logIngredientUsage, logSaleIngredientUsage } from '@/lib/sheets'
 import { useProducts } from '@/lib/products-context'
 import { useTransactions } from '@/lib/transactions-context'
 import { useIngredients } from '@/lib/ingredients-context'
+import { useIngredientUsage } from '@/lib/ingredient-usage-context'
 import toast from 'react-hot-toast'
 
 // ─── Payment Modal ────────────────────────────────────────────────────────
@@ -395,6 +396,7 @@ export default function POSPage() {
   const { products, setProducts } = useProducts()
   const { addTransaction } = useTransactions()
   const { ingredients, setIngredients } = useIngredients()
+  const { addUsageEntries } = useIngredientUsage()
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
@@ -498,6 +500,20 @@ export default function POSPage() {
 
   const clearCart = useCallback(() => setCart([]), [])
 
+  // ── Unit conversion helper ─────────────────────────────────────────────
+  // Converts a recipe quantity (in `fromUnit`) to the ingredient's stock unit (`toUnit`).
+  // Only g↔kg and ml↔L are supported; anything else is returned as-is.
+  const convertToStockUnit = (qty: number, fromUnit: string | undefined, toUnit: string): number => {
+    const from = (fromUnit ?? toUnit).trim()
+    const to   = toUnit.trim()
+    if (from === to) return qty
+    if (from === 'g'  && to === 'kg') return qty / 1000
+    if (from === 'kg' && to === 'g')  return qty * 1000
+    if (from === 'ml' && to === 'L')  return qty / 1000
+    if (from === 'L'  && to === 'ml') return qty * 1000
+    return qty  // incompatible units — assume same scale (best effort)
+  }
+
   const handlePaymentConfirm = useCallback((method: PaymentMethod) => {
     // 0. Validate stock — prevent sale if any item exceeds available stock
     const overStock = cart.filter(item => {
@@ -519,8 +535,12 @@ export default function POSPage() {
       for (const recipeItem of recipe) {
         const ingredient = ingredients.find(i => i.id === recipeItem.ingredientId)
         if (!ingredient) continue
-        const needed = recipeItem.quantityRequired * cartItem.quantity
-        if (ingredient.stock < needed) {
+        const neededInStockUnit = convertToStockUnit(
+          recipeItem.quantityRequired * cartItem.quantity,
+          recipeItem.unit,
+          ingredient.unit
+        )
+        if (ingredient.stock < neededInStockUnit) {
           setPaymentOpen(false)
           toast.error(`Insufficient ${ingredient.name} for ${cartItem.product.name}`, { duration: 5000 })
           return
@@ -539,11 +559,18 @@ export default function POSPage() {
     }))
 
     // 2. Deduct ingredient stock for recipe-based products
+    // Quantities are converted from recipe unit → ingredient stock unit before deducting.
     const ingredientUpdates: Record<string, number> = {}
     cart.forEach(cartItem => {
       (cartItem.product.recipe ?? []).forEach(ri => {
+        const ingredient = ingredients.find(i => i.id === ri.ingredientId)
+        const deductAmt = convertToStockUnit(
+          ri.quantityRequired * cartItem.quantity,
+          ri.unit,
+          ingredient?.unit ?? ri.unit ?? ''
+        )
         ingredientUpdates[ri.ingredientId] =
-          (ingredientUpdates[ri.ingredientId] ?? 0) + ri.quantityRequired * cartItem.quantity
+          (ingredientUpdates[ri.ingredientId] ?? 0) + deductAmt
       })
     })
     if (Object.keys(ingredientUpdates).length > 0) {
@@ -565,6 +592,65 @@ export default function POSPage() {
         }).catch(console.error)
         return { ...ing, stock: newStock, updatedAt: now }
       }))
+    }
+
+    // 2b. Record ingredient usage analytics
+    // Load nexpos_recipes as fallback — recipes may be stored there even when
+    // the product object in the cart doesn't have the recipe field embedded.
+    let recipesLookup: Record<string, Array<{ ingredientId: string; quantityRequired: number; unit?: string }>> = {}
+    try {
+      const raw = localStorage.getItem('nexpos_recipes')
+      if (raw) recipesLookup = JSON.parse(raw)
+    } catch {}
+
+    const ingUsageEntries: IngredientUsageEntry[] = []
+    cart.forEach(cartItem => {
+      // Prefer recipe embedded on the product; fall back to nexpos_recipes lookup
+      const recipe = (cartItem.product.recipe && cartItem.product.recipe.length > 0)
+        ? cartItem.product.recipe
+        : (recipesLookup[cartItem.product.id] ?? [])
+
+      recipe.forEach(ri => {
+        const ingredient = ingredients.find(i => i.id === ri.ingredientId)
+        if (!ingredient) return
+        // Log in recipe unit (e.g. 10 g) — more meaningful for analytics than stock unit (kg)
+        const recipeUnit = ri.unit ?? ingredient.unit
+        ingUsageEntries.push({
+          id: `usage_${txId}_${ri.ingredientId}_${cartItem.product.id}`,
+          ingredient_id: ri.ingredientId,
+          ingredient_name: ingredient.name,
+          quantity_used: ri.quantityRequired * cartItem.quantity,
+          unit: recipeUnit,
+          transaction_id: txId,
+          product_id: cartItem.product.id,
+          product_name: cartItem.product.name,
+          timestamp: now,
+        })
+      })
+
+      console.log(
+        `[NEXPOS] ${cartItem.product.name} → recipe on product:`, cartItem.product.recipe?.length ?? 0,
+        '| recipe from lookup:', recipesLookup[cartItem.product.id]?.length ?? 0,
+        '| entries built:', ingUsageEntries.length
+      )
+    })
+    console.log('[NEXPOS] USAGE ENTRIES TOTAL:', ingUsageEntries.length, ingUsageEntries)
+    if (ingUsageEntries.length > 0) {
+      addUsageEntries(ingUsageEntries)
+      // Also persist each entry to the ingredient_usage Sheets tab for cross-device durability
+      ingUsageEntries.forEach(entry => {
+        logSaleIngredientUsage({
+          id:              entry.id,
+          timestamp:       entry.timestamp,
+          transaction_id:  entry.transaction_id,
+          product_id:      entry.product_id,
+          product_name:    entry.product_name,
+          ingredient_id:   entry.ingredient_id,
+          ingredient_name: entry.ingredient_name,
+          quantity_used:   entry.quantity_used,
+          unit:            entry.unit,
+        }).catch(console.error)
+      })
     }
 
     // 3. Sync each sold product's new stock to Sheets + log inventory
@@ -648,7 +734,7 @@ export default function POSPage() {
     setOrderNumber(generateOrderId())
     setCompletedOrders(n => n + 1)
     toast.success('Order completed successfully!')
-  }, [clearCart, cart, products, ingredients, setIngredients, subtotal, discountValue, discountAmount, taxAmount, total, addTransaction])
+  }, [clearCart, cart, products, ingredients, setIngredients, subtotal, discountValue, discountAmount, taxAmount, total, addTransaction, addUsageEntries])
 
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0)
 
