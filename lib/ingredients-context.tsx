@@ -18,6 +18,14 @@ interface IngredientsContextValue {
 const IngredientsContext = createContext<IngredientsContextValue | null>(null)
 
 const STORAGE_KEY = 'nexpos_ingredients'
+const BACKUP_KEY  = 'nexpos_ingredients_backup'
+
+/** Write ingredients to both the primary and backup localStorage keys. */
+function persistIngredients(list: Ingredient[]): void {
+  const json = JSON.stringify(stripBase64Images(list))
+  try { localStorage.setItem(STORAGE_KEY, json) } catch {}
+  try { localStorage.setItem(BACKUP_KEY,  json) } catch {}
+}
 
 // ─── Starter seed ─────────────────────────────────────────────────────────
 // Generated once when nexpos_ingredients is absent or empty.
@@ -120,15 +128,22 @@ export function IngredientsProvider({ children }: { children: React.ReactNode })
   // Seed only runs when nexpos_ingredients is absent or empty — never overwrites existing data.
   const [ingredients, rawSetIngredients] = useState<Ingredient[]>(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      if (stored) {
-        const parsed: Ingredient[] = JSON.parse(stored)
-        // Existing data — return as-is, never overwrite with seed
-        if (parsed.length > 0) return parsed
+      // Try primary key first, fall back to backup if primary is missing/empty
+      const primary = localStorage.getItem(STORAGE_KEY)
+      const raw = primary || localStorage.getItem(BACKUP_KEY)
+      if (raw) {
+        const parsed: Ingredient[] = JSON.parse(raw)
+        if (parsed.length > 0) {
+          console.log('Loaded ingredients:', parsed.length)
+          // Ensure both keys are in sync on restore
+          if (!primary) persistIngredients(parsed)
+          return parsed
+        }
       }
-      // Only seed when nexpos_ingredients is absent or completely empty
+      // Only seed when both keys are absent or empty
       const seed = createSeedIngredients()
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(seed)) } catch {}
+      console.log('Loaded ingredients:', seed.length, '(seeded)')
+      persistIngredients(seed)
       return seed
     } catch {
       return []
@@ -156,12 +171,8 @@ export function IngredientsProvider({ children }: { children: React.ReactNode })
           // External URL (Google Drive etc.) → keep in localStorage, no IndexedDB action needed
         })
 
-        // Persist to localStorage WITHOUT base64 images (stay under 5 MB limit)
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(stripBase64Images(next)))
-        } catch {
-          // Storage quota exceeded — data is still in memory and IndexedDB
-        }
+        // Persist to both localStorage keys (backup included)
+        persistIngredients(next)
 
         return next
       })
@@ -226,7 +237,7 @@ export function IngredientsProvider({ children }: { children: React.ReactNode })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetIngredients = useCallback(() => {
-    try { localStorage.removeItem(STORAGE_KEY) } catch {}
+    // Intentionally does NOT clear localStorage — data is never deleted from storage.
     rawSetIngredients([])
   }, [])
 
