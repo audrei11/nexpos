@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { IngredientModal } from '@/components/ingredients/ingredient-modal'
 import { cn, formatCurrency } from '@/lib/utils'
 import { useIngredients } from '@/lib/ingredients-context'
+import { useAuth } from '@/lib/auth-context'
 import { saveIngredientToSheets, logIngredientUsage } from '@/lib/sheets'
 import type { Ingredient } from '@/lib/types'
 import toast from 'react-hot-toast'
@@ -124,6 +125,8 @@ function IngredientCard({
 // ─── Main Page ─────────────────────────────────────────────────────────────
 export default function IngredientsPage() {
   const { ingredients, setIngredients } = useIngredients()
+  const { user } = useAuth()
+  const canDelete = user?.role === 'admin' || user?.role === 'owner'
   const [search, setSearch]             = useState('')
   const [modalOpen, setModalOpen]       = useState(false)
   const [editingIngredient, setEditingIngredient] = useState<Ingredient | null>(null)
@@ -166,9 +169,17 @@ export default function IngredientsPage() {
       }
       toast.success(`${updated.name} updated`)
     } else {
+      // Duplicate name check (case-insensitive)
+      const duplicate = ingredients.find(
+        i => i.name.toLowerCase() === data.name.trim().toLowerCase()
+      )
+      if (duplicate) {
+        toast.error('Ingredient already exists.')
+        return
+      }
       // Add
       const newIngredient: Ingredient = {
-        id: `ing_${Date.now()}`,
+        id: crypto.randomUUID(),
         name: data.name, unit: data.unit, stock: data.stock,
         minStock: data.minStock, costPerUnit: data.costPerUnit,
         emoji: data.emoji, imageUrl: data.imageUrl,
@@ -193,6 +204,13 @@ export default function IngredientsPage() {
     setModalOpen(false)
     setEditingIngredient(null)
   }, [ingredients, setIngredients])
+
+  const handleDelete = useCallback((ingredient: Ingredient) => {
+    setIngredients(prev => prev.filter(i => i.id !== ingredient.id))
+    setModalOpen(false)
+    setEditingIngredient(null)
+    toast.success(`${ingredient.name} deleted`)
+  }, [setIngredients])
 
   const handleRestock = useCallback((ingredient: Ingredient) => {
     const raw = restockQtys[ingredient.id] ?? ''
@@ -474,6 +492,7 @@ export default function IngredientsPage() {
         ingredient={editingIngredient}
         onClose={() => { setModalOpen(false); setEditingIngredient(null) }}
         onSave={handleSave}
+        onDelete={canDelete && editingIngredient ? () => handleDelete(editingIngredient) : undefined}
       />
     </div>
   )

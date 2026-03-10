@@ -59,14 +59,17 @@ interface IngredientModalProps {
   ingredient?: Ingredient | null
   onClose: () => void
   onSave: (data: Omit<Ingredient, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => void
+  /** If provided, a Delete button is shown in edit mode (admin/owner only). */
+  onDelete?: () => void
 }
 
-export function IngredientModal({ isOpen, ingredient, onClose, onSave }: IngredientModalProps) {
+export function IngredientModal({ isOpen, ingredient, onClose, onSave, onDelete }: IngredientModalProps) {
   const isEdit = !!ingredient
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [imageUploading, setImageUploading] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -74,6 +77,7 @@ export function IngredientModal({ isOpen, ingredient, onClose, onSave }: Ingredi
       setErrors({})
       setEmojiOpen(false)
       setImageUploading(false)
+      setConfirmDelete(false)
       if (ingredient) {
         setForm({
           name:        ingredient.name,
@@ -368,21 +372,65 @@ export function IngredientModal({ isOpen, ingredient, onClose, onSave }: Ingredi
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-surface-100 bg-surface-50/60 rounded-b-3xl flex-shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="h-10 rounded-xl border border-surface-200 bg-white px-5 text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-all"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            form="ingredient-form"
-            disabled={imageUploading}
-            className="h-10 rounded-xl bg-emerald-500 px-6 text-sm font-bold text-white shadow-sm hover:bg-emerald-600 transition-all active:scale-[0.98] disabled:opacity-70 disabled:pointer-events-none"
-          >
-            {isEdit ? 'Save Changes' : 'Add Ingredient'}
-          </button>
+          {/* Delete — edit mode, admin/owner only */}
+          {isEdit && onDelete ? (
+            confirmDelete ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-rose-600">Delete?</span>
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  className="h-8 rounded-xl bg-rose-500 px-3 text-xs font-bold text-white hover:bg-rose-600 transition-all"
+                >
+                  Yes, delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  className="h-8 rounded-xl border border-surface-200 bg-white px-3 text-xs font-semibold text-surface-600 hover:bg-surface-50 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="flex items-center gap-1.5 h-10 rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-600 hover:bg-rose-100 transition-all"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            )
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-10 rounded-xl border border-surface-200 bg-white px-5 text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-all"
+            >
+              Cancel
+            </button>
+          )}
+
+          <div className="flex items-center gap-2">
+            {isEdit && onDelete && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-10 rounded-xl border border-surface-200 bg-white px-4 text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-all"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="submit"
+              form="ingredient-form"
+              disabled={imageUploading}
+              className="h-10 rounded-xl bg-emerald-500 px-6 text-sm font-bold text-white shadow-sm hover:bg-emerald-600 transition-all active:scale-[0.98] disabled:opacity-70 disabled:pointer-events-none"
+            >
+              {isEdit ? 'Save Changes' : 'Add Ingredient'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

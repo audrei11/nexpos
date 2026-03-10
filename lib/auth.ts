@@ -15,6 +15,7 @@ export interface AuthUser {
   name: string
   storeName: string
   storeEmoji: string
+  role: 'owner' | 'admin' | 'staff'
   /** Per-store Apps Script Web App URL. Falls back to env var if empty. */
   googleScriptUrl: string
 }
@@ -22,6 +23,7 @@ export interface AuthUser {
 interface StoreConfig {
   name: string
   emoji: string
+  role: 'owner' | 'admin' | 'staff'
   /**
    * Each store can have its own Google Apps Script deployment.
    * Leave empty to use NEXT_PUBLIC_GOOGLE_SHEETS_SCRIPT_URL from .env.local.
@@ -35,16 +37,19 @@ const STORE_CONFIGS: Record<string, StoreConfig> = {
   'cafe@test.com': {
     name: 'Café Store',
     emoji: '☕',
+    role: 'owner',
     googleScriptUrl: '',
   },
   'elec@test.com': {
     name: 'Electronics Store',
     emoji: '⚡',
+    role: 'owner',
     googleScriptUrl: '',
   },
   'cloth@test.com': {
     name: 'Clothing Store',
     emoji: '👕',
+    role: 'owner',
     googleScriptUrl: '',
   },
 }
@@ -79,6 +84,7 @@ export function validateCredentials(email: string, password: string): AuthUser |
     name,
     storeName: store.name,
     storeEmoji: store.emoji,
+    role: store.role,
     googleScriptUrl: store.googleScriptUrl,
   }
 }
