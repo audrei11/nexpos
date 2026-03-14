@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import type { Product } from '@/lib/types'
-import { fetchFromSheetsProxy } from '@/lib/sheets'
+import { fetchFromSheetsProxy, saveProductToSheets } from '@/lib/sheets'
 import { saveImage, loadAllImages, deleteImage } from '@/lib/image-store'
 import { readUserStorage, writeUserStorage, removeUserStorage } from '@/lib/storage'
 
@@ -240,15 +240,36 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
                   ?? (local?.sku ? idbImages[`sku:${norm(local.sku)}`] : undefined))
               : undefined
             const imageUrl = local?.imageUrl ?? sp.imageUrl ?? idbImg
+            const recipe = local?.recipe ?? sp.recipe
             return {
               ...sp,
               ...(imageUrl ? { imageUrl } : {}),
-              ...(local?.recipe ? { recipe: local.recipe } : {}),
+              ...(recipe ? { recipe } : {}),
             }
           })
           // Local-only = products not matched by any Sheets entry
           const localOnly = prev.filter(p => !sheetsProducts.some(sp => isSameProduct(p, sp)))
-          return dedupe([...merged, ...localOnly])
+          const final = dedupe([...merged, ...localOnly])
+
+          // Auto-sync: push recipes that exist locally but not yet in GAS
+          // (one-time sync until GAS has the recipe column populated)
+          if (!cancelled) {
+            final.forEach(p => {
+              if (p.recipe?.length && !sheetsProducts.find(sp => isSameProduct(sp, p))?.recipe?.length) {
+                saveProductToSheets('updateProduct', {
+                  id: p.id, name: p.name, sku: p.sku, category: p.category,
+                  price: p.price, cost: p.cost, stock: p.stock, min_stock: p.minStock,
+                  description: p.description, emoji: p.emoji, barcode: p.barcode,
+                  unit: p.unit, tax_rate: p.taxRate, is_active: p.isActive !== false,
+                  image_url: p.imageUrl?.startsWith('data:') ? undefined : p.imageUrl,
+                  recipe: JSON.stringify(p.recipe),
+                  created_at: p.createdAt, updated_at: p.updatedAt,
+                }).catch(() => {})
+              }
+            })
+          }
+
+          return final
         })
 
         // 5. Final safety-net: re-hydrate any products still missing images from IndexedDB.
