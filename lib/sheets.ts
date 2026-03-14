@@ -174,6 +174,10 @@ export async function saveIngredientToSheets(
   await postToSheets({ action, ...ingredient })
 }
 
+export async function deleteIngredientFromSheets(id: string): Promise<void> {
+  await postToSheets({ action: 'deleteIngredient', id })
+}
+
 export async function logIngredientUsage(log: SheetIngredientLog): Promise<void> {
   await postToSheets({
     action: 'logIngredientUsage',

@@ -45,6 +45,7 @@ function doPost(e) {
       // ── Ingredient actions ──────────────────────────────────────────────
       case 'saveIngredient':     handleSaveIngredient(ss, payload);    break;
       case 'updateIngredient':   handleUpdateIngredient(ss, payload);  break;
+      case 'deleteIngredient':   handleDeleteIngredient(ss, payload);  break;
       case 'logIngredientUsage': handleIngredientLog(ss, payload);     break;
       case 'saveIngredientUsage': handleSaveIngredientUsage(ss, payload); break;
       default:
@@ -390,6 +391,18 @@ function ingredientObj(p) {
     created_at:   p.created_at,
     updated_at:   p.updated_at
   };
+}
+
+function handleDeleteIngredient(ss, p) {
+  var sheet = ss.getSheetByName('ingredients');
+  if (!sheet) return;
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(p.id)) {
+      sheet.deleteRow(i + 1);
+      return;
+    }
+  }
 }
 
 function handleSaveIngredient(ss, p) {

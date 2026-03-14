@@ -10,7 +10,7 @@ import { IngredientModal } from '@/components/ingredients/ingredient-modal'
 import { cn, formatCurrency, guessIngredientEmoji } from '@/lib/utils'
 import { useIngredients } from '@/lib/ingredients-context'
 import { useAuth } from '@/lib/auth-context'
-import { saveIngredientToSheets, logIngredientUsage } from '@/lib/sheets'
+import { saveIngredientToSheets, logIngredientUsage, deleteIngredientFromSheets } from '@/lib/sheets'
 import type { Ingredient } from '@/lib/types'
 import toast from 'react-hot-toast'
 
@@ -213,6 +213,7 @@ export default function IngredientsPage() {
 
   const handleDelete = useCallback((ingredient: Ingredient) => {
     setIngredients(prev => prev.filter(i => i.id !== ingredient.id))
+    deleteIngredientFromSheets(ingredient.id).catch(() => {})
     setModalOpen(false)
     setEditingIngredient(null)
     toast.success(`${ingredient.name} deleted`)
