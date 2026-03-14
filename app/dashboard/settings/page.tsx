@@ -2,11 +2,11 @@
 export const dynamic = 'force-dynamic'
 
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   Store, Receipt, Users, Bell, Shield, CreditCard,
   Palette, Globe, ChevronRight, Save, Check, Zap,
-  Database, Trash2, AlertTriangle,
+  Database, Trash2, AlertTriangle, Download, Upload,
 } from 'lucide-react'
 import { Header } from '@/components/layout/header'
 import { cn } from '@/lib/utils'
@@ -71,6 +71,9 @@ export default function SettingsPage() {
   const [showResetModal, setShowResetModal] = useState(false)
   const [resetLoading, setResetLoading]     = useState(false)
 
+  // Import ref
+  const importRef = useRef<HTMLInputElement>(null)
+
   // Auth + context resets
   const { user }              = useAuth()
   const { resetProducts }     = useProducts()
@@ -114,6 +117,42 @@ export default function SettingsPage() {
 
   const toggle = (key: keyof typeof toggles) =>
     setToggles(prev => ({ ...prev, [key]: !prev[key] }))
+
+  const handleExportData = () => {
+    const keys = Object.keys(localStorage).filter(k => k.startsWith('nexpos_'))
+    if (!keys.length) { toast.error('No data to export.'); return }
+    const data: Record<string, string> = {}
+    keys.forEach(k => { const v = localStorage.getItem(k); if (v) data[k] = v })
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `nexpos-backup-${new Date().toISOString().slice(0,10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('Data exported successfully!')
+  }
+
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target?.result as string) as Record<string, string>
+        let count = 0
+        Object.entries(data).forEach(([k, v]) => {
+          if (k.startsWith('nexpos_')) { localStorage.setItem(k, v); count++ }
+        })
+        toast.success(`Imported ${count} keys — reloading...`)
+        setTimeout(() => window.location.reload(), 1200)
+      } catch {
+        toast.error('Invalid backup file.')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
 
   const handleSave = async () => {
     await new Promise(r => setTimeout(r, 600))
@@ -328,14 +367,35 @@ export default function SettingsPage() {
                 {/* Info card */}
                 <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-6">
                   <h3 className="text-sm font-bold text-surface-900 mb-1 uppercase tracking-wider">Data Management</h3>
-                  <p className="text-xs text-surface-500 mb-4">Manage store data, exports, and imports.</p>
-                  <SettingRow label="Export Data" description="Download all store data as CSV">
+                  <p className="text-xs text-surface-500 mb-4">Backup and restore all store data across devices.</p>
+
+                  <SettingRow label="Export Data" description="Download a backup of all your local data (products, transactions, ingredients)">
                     <button
-                      onClick={() => toast('Export coming soon')}
-                      className="rounded-xl border border-surface-200 bg-white px-3 py-1.5 text-xs font-semibold text-surface-700 hover:bg-surface-50 transition-all"
+                      onClick={handleExportData}
+                      className="flex items-center gap-1.5 rounded-xl border border-surface-200 bg-white px-3 py-1.5 text-xs font-semibold text-surface-700 hover:bg-surface-50 transition-all"
                     >
-                      Export CSV
+                      <Download className="h-3.5 w-3.5" />
+                      Export JSON
                     </button>
+                  </SettingRow>
+
+                  <SettingRow label="Import Data" description="Restore data from a previously exported backup file">
+                    <>
+                      <input
+                        ref={importRef}
+                        type="file"
+                        accept=".json"
+                        className="hidden"
+                        onChange={handleImportData}
+                      />
+                      <button
+                        onClick={() => importRef.current?.click()}
+                        className="flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 transition-all"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        Import JSON
+                      </button>
+                    </>
                   </SettingRow>
                 </div>
 

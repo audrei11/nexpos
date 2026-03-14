@@ -203,7 +203,7 @@ export async function logSaleIngredientUsage(entry: SheetIngredientUsageEntry): 
  * Fetches rows from a GAS sheet via the /api/sheets proxy route.
  * Returns an empty array if unavailable (GAS not configured, network error, etc.)
  */
-export async function fetchFromSheetsProxy(action: 'getProducts' | 'getIngredients' | 'getIngredientUsage'): Promise<Record<string, unknown>[]> {
+export async function fetchFromSheetsProxy(action: 'getProducts' | 'getIngredients' | 'getIngredientUsage' | 'getTransactions'): Promise<Record<string, unknown>[]> {
   try {
     // Pass the active GAS URL to the server proxy so it works even when only
     // NEXT_PUBLIC_GOOGLE_SHEETS_SCRIPT_URL is configured (no server-side env var).
