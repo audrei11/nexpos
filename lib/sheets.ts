@@ -50,6 +50,7 @@ export interface SheetProduct {
   tax_rate?: number
   is_active: boolean
   image_url?: string
+  recipe?: string
   created_at: string
   updated_at: string
 }

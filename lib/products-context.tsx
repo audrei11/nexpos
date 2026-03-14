@@ -62,6 +62,7 @@ function mapRowToProduct(row: Record<string, unknown>): Product {
     taxRate:     row.tax_rate != null ? Number(row.tax_rate) : 0.08,
     isActive:    row.is_active === true || String(row.is_active).toLowerCase() === 'true',
     imageUrl:    row.image_url ? migrateImageUrl(String(row.image_url)) : undefined,
+    recipe:      row.recipe ? (() => { try { return JSON.parse(String(row.recipe)) } catch { return undefined } })() : undefined,
     createdAt:   String(row.created_at ?? new Date().toISOString()),
     updatedAt:   String(row.updated_at ?? new Date().toISOString()),
   }

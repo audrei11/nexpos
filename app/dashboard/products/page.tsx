@@ -69,17 +69,13 @@ export default function ProductsPage() {
   /* ── save recipe ── */
   const handleSaveRecipe = (productId: string, recipe: RecipeItem[]) => {
     const now = new Date().toISOString()
-    setProducts(prev => prev.map(p =>
-      p.id === productId ? { ...p, recipe, updatedAt: now } : p
-    ))
-    // Mirror to nexpos_recipes for external lookups
-    try {
-      const stored: Record<string, RecipeItem[]> = JSON.parse(
-        localStorage.getItem('nexpos_recipes') ?? '{}'
-      )
-      stored[productId] = recipe
-      localStorage.setItem('nexpos_recipes', JSON.stringify(stored))
-    } catch {}
+    setProducts(prev => prev.map(p => {
+      if (p.id !== productId) return p
+      const updated = { ...p, recipe, updatedAt: now }
+      // Persist recipe to Google Sheets so it survives on Vercel
+      saveProductToSheets('updateProduct', toSheetProduct(updated)).catch(console.error)
+      return updated
+    }))
     setRecipeProduct(null)
     toast.success('Recipe saved')
   }
@@ -145,6 +141,7 @@ export default function ProductsPage() {
       is_active: p.isActive !== false,
       // Never send base64 to Sheets — too large and breaks the cell
       image_url: p.imageUrl?.startsWith('data:') ? undefined : p.imageUrl,
+      recipe: p.recipe?.length ? JSON.stringify(p.recipe) : undefined,
       created_at: p.createdAt,
       updated_at: p.updatedAt,
     }

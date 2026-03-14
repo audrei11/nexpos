@@ -287,7 +287,7 @@ function handleCustomer(ss, p) {
 var PRODUCT_HEADERS = [
   'id', 'name', 'sku', 'category', 'price', 'cost', 'stock',
   'min_stock', 'description', 'emoji', 'barcode', 'unit',
-  'tax_rate', 'is_active', 'image_url', 'created_at', 'updated_at'
+  'tax_rate', 'is_active', 'image_url', 'recipe', 'created_at', 'updated_at'
 ];
 
 function productObj(p) {
@@ -307,6 +307,7 @@ function productObj(p) {
     tax_rate:    p.tax_rate    || 0,
     is_active:   p.is_active === false ? 'FALSE' : 'TRUE',
     image_url:   p.image_url   || '',
+    recipe:      p.recipe      || '',
     created_at:  p.created_at,
     updated_at:  p.updated_at
   };
