@@ -27,6 +27,6 @@ export function CustomersProvider({ children }: { children: React.ReactNode }) {
 
 export function useCustomers() {
   const ctx = useContext(CustomersContext)
-  if (!ctx) throw new Error('useCustomers must be used inside CustomersProvider')
+  if (!ctx) return { customers: [], setCustomers: () => {}, resetCustomers: () => {} }
   return ctx
 }

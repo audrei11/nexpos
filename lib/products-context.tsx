@@ -301,6 +301,6 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
 
 export function useProducts() {
   const ctx = useContext(ProductsContext)
-  if (!ctx) throw new Error('useProducts must be used inside ProductsProvider')
+  if (!ctx) return { products: [], setProducts: () => {}, resetProducts: () => {}, deleteProduct: () => {} }
   return ctx
 }

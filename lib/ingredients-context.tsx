@@ -262,6 +262,6 @@ export function IngredientsProvider({ children }: { children: React.ReactNode })
 
 export function useIngredients() {
   const ctx = useContext(IngredientsContext)
-  if (!ctx) throw new Error('useIngredients must be used inside IngredientsProvider')
+  if (!ctx) return { ingredients: [], setIngredients: () => {}, resetIngredients: () => {}, lowStockIngredients: [] }
   return ctx
 }

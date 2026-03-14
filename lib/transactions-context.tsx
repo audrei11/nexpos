@@ -50,6 +50,6 @@ export function TransactionsProvider({ children }: { children: React.ReactNode }
 
 export function useTransactions() {
   const ctx = useContext(TransactionsContext)
-  if (!ctx) throw new Error('useTransactions must be used inside TransactionsProvider')
+  if (!ctx) return { transactions: [], addTransaction: () => {}, resetTransactions: () => {} }
   return ctx
 }
