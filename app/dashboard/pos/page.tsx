@@ -575,7 +575,7 @@ export default function POSPage() {
       return
     }
 
-    // Check ingredient availability for recipe-based products
+    // Warn if ingredients are insufficient but do NOT block the sale
     for (const cartItem of cart) {
       const recipe = cartItem.product.recipe ?? []
       for (const recipeItem of recipe) {
@@ -587,9 +587,7 @@ export default function POSPage() {
           ingredient.unit
         )
         if (ingredient.stock < neededInStockUnit) {
-          setPaymentOpen(false)
-          toast.error(`Insufficient ${ingredient.name} for ${cartItem.product.name}`, { duration: 5000 })
-          return
+          toast(`Low stock: ${ingredient.name} (${ingredient.stock} ${ingredient.unit} left)`, { icon: '⚠️', duration: 4000 })
         }
       }
     }
