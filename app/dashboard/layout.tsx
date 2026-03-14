@@ -1,4 +1,5 @@
 'use client'
+export const dynamic = 'force-dynamic'
 
 import { useEffect } from 'react'
 import { SidebarProvider, useSidebar } from '@/lib/sidebar-context'
@@ -6,6 +7,7 @@ import { ProductsProvider } from '@/lib/products-context'
 import { TransactionsProvider } from '@/lib/transactions-context'
 import { CustomersProvider } from '@/lib/customers-context'
 import { IngredientsProvider } from '@/lib/ingredients-context'
+import { IngredientUsageProvider } from '@/lib/ingredient-usage-context'
 import { useAuth } from '@/lib/auth-context'
 import { setScriptUrl } from '@/lib/sheets'
 import { Sidebar } from '@/components/layout/sidebar'
@@ -63,11 +65,13 @@ export default function DashboardLayout({
     <TransactionsProvider>
       <ProductsProvider>
         <IngredientsProvider>
-          <CustomersProvider>
-            <SidebarProvider>
-              <DashboardInner>{children}</DashboardInner>
-            </SidebarProvider>
-          </CustomersProvider>
+          <IngredientUsageProvider>
+            <CustomersProvider>
+              <SidebarProvider>
+                <DashboardInner>{children}</DashboardInner>
+              </SidebarProvider>
+            </CustomersProvider>
+          </IngredientUsageProvider>
         </IngredientsProvider>
       </ProductsProvider>
     </TransactionsProvider>

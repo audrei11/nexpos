@@ -128,31 +128,29 @@ function stripBase64Images(list: Ingredient[]): Ingredient[] {
 // ─── Provider ─────────────────────────────────────────────────────────────
 
 export function IngredientsProvider({ children }: { children: React.ReactNode }) {
-  // Initialize from localStorage synchronously (images will be hydrated after mount).
-  // Seed only runs when nexpos_ingredients is absent or empty — never overwrites existing data.
-  const [ingredients, rawSetIngredients] = useState<Ingredient[]>(() => {
+  // Start with [] to avoid SSR/hydration mismatch (localStorage isn't available server-side).
+  // Load persisted data + seed after mount — same pattern as ProductsProvider.
+  const [ingredients, rawSetIngredients] = useState<Ingredient[]>([])
+
+  // Effect 0: load from localStorage after mount (runs before Sheets fetch)
+  useEffect(() => {
     try {
-      // Try primary key first, fall back to backup if primary is missing/empty
       const primary = readUserStorage(INGREDIENTS_BASE)
       const raw = primary || readUserStorage(BACKUP_BASE)
       if (raw) {
         const parsed: Ingredient[] = JSON.parse(raw)
         if (parsed.length > 0) {
-          console.log('Loaded ingredients:', parsed.length)
-          // Ensure both keys are in sync on restore
           if (!primary) persistIngredients(parsed)
-          return parsed
+          rawSetIngredients(parsed)
+          return
         }
       }
       // Only seed when both keys are absent or empty
       const seed = createSeedIngredients()
-      console.log('Loaded ingredients:', seed.length, '(seeded)')
       persistIngredients(seed)
-      return seed
-    } catch {
-      return []
-    }
-  })
+      rawSetIngredients(seed)
+    } catch {}
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Persisted setter — routes images to IndexedDB, everything else to localStorage.

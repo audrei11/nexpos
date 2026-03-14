@@ -8,7 +8,7 @@ import {
   QrCode, ShoppingBag, User, Tag, ChevronDown, Receipt,
   CheckCircle2, RefreshCw, Zap, ScanLine
 } from 'lucide-react'
-import { cn, formatCurrency, generateOrderId } from '@/lib/utils'
+import { cn, formatCurrency, generateOrderId, convertToStockUnit } from '@/lib/utils'
 import { CATEGORIES } from '@/lib/mock-data'
 import type { CartItem, Product, PaymentMethod, IngredientUsageEntry } from '@/lib/types'
 import { saveTransactionToSheets, saveProductToSheets, logInventoryChange, saveIngredientToSheets, logIngredientUsage, logSaleIngredientUsage } from '@/lib/sheets'
@@ -16,6 +16,8 @@ import { useProducts } from '@/lib/products-context'
 import { useTransactions } from '@/lib/transactions-context'
 import { useIngredients } from '@/lib/ingredients-context'
 import { useIngredientUsage } from '@/lib/ingredient-usage-context'
+import { useAuth } from '@/lib/auth-context'
+import { readUserStorage } from '@/lib/storage'
 import toast from 'react-hot-toast'
 
 // ─── Payment Modal ────────────────────────────────────────────────────────
@@ -450,6 +452,7 @@ function CartItemRow({
 
 // ─── Main POS Page ────────────────────────────────────────────────────────
 export default function POSPage() {
+  const { user } = useAuth()
   const { products, setProducts } = useProducts()
   const { addTransaction } = useTransactions()
   const { ingredients, setIngredients } = useIngredients()
@@ -557,20 +560,6 @@ export default function POSPage() {
 
   const clearCart = useCallback(() => setCart([]), [])
 
-  // ── Unit conversion helper ─────────────────────────────────────────────
-  // Converts a recipe quantity (in `fromUnit`) to the ingredient's stock unit (`toUnit`).
-  // Only g↔kg and ml↔L are supported; anything else is returned as-is.
-  const convertToStockUnit = (qty: number, fromUnit: string | undefined, toUnit: string): number => {
-    const from = (fromUnit ?? toUnit).trim()
-    const to   = toUnit.trim()
-    if (from === to) return qty
-    if (from === 'g'  && to === 'kg') return qty / 1000
-    if (from === 'kg' && to === 'g')  return qty * 1000
-    if (from === 'ml' && to === 'L')  return qty / 1000
-    if (from === 'L'  && to === 'ml') return qty * 1000
-    return qty  // incompatible units — assume same scale (best effort)
-  }
-
   const handlePaymentConfirm = useCallback((method: PaymentMethod) => {
     // 0. Validate stock — prevent sale if any item exceeds available stock
     const overStock = cart.filter(item => {
@@ -656,7 +645,7 @@ export default function POSPage() {
     // the product object in the cart doesn't have the recipe field embedded.
     let recipesLookup: Record<string, Array<{ ingredientId: string; quantityRequired: number; unit?: string }>> = {}
     try {
-      const raw = localStorage.getItem('nexpos_recipes')
+      const raw = readUserStorage('recipes')
       if (raw) recipesLookup = JSON.parse(raw)
     } catch {}
 
@@ -749,7 +738,7 @@ export default function POSPage() {
       total,
       payment_method: method,
       items_count: cart.reduce((s, i) => s + i.quantity, 0),
-      cashier: 'Alex Chen',
+      cashier: user?.name ?? 'Cashier',
       items: cart.map(i => ({
         product_id: i.product.id,
         product_name: i.product.name,
@@ -780,7 +769,7 @@ export default function POSPage() {
       total,
       paymentMethod: method,
       status: 'completed',
-      cashierName: 'Alex Chen',
+      cashierName: user?.name ?? 'Cashier',
       createdAt: now,
       updatedAt: now,
     })
