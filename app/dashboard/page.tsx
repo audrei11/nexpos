@@ -13,10 +13,11 @@ import {
 } from 'recharts'
 import { Header } from '@/components/layout/header'
 import { Badge } from '@/components/ui/badge'
-import { cn, formatCurrency, formatDateTime } from '@/lib/utils'
+import { cn, formatCurrency, formatDateTime, convertToStockUnit } from '@/lib/utils'
 import { useProducts } from '@/lib/products-context'
 import { useTransactions } from '@/lib/transactions-context'
 import { useIngredients } from '@/lib/ingredients-context'
+import { useIngredientUsage } from '@/lib/ingredient-usage-context'
 import Link from 'next/link'
 
 // ─── Stat Card ────────────────────────────────────────────────────────────
@@ -121,7 +122,33 @@ export default function DashboardPage() {
   const [txPeriod, setTxPeriod] = useState<TxPeriod>('today')
   const { products } = useProducts()
   const { transactions } = useTransactions()
-  const { lowStockIngredients } = useIngredients()
+  const { ingredients, lowStockIngredients } = useIngredients()
+  const { usageEntries } = useIngredientUsage()
+
+  // ── Ingredient usage + cost today ────────────────────────────────────
+  const todayUsage = useMemo(() => {
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+    const map = new Map<string, { name: string; unit: string; total: number }>()
+    usageEntries
+      .filter(e => new Date(e.timestamp) >= todayStart)
+      .forEach(e => {
+        const cur = map.get(e.ingredient_id)
+        if (cur) { cur.total += e.quantity_used }
+        else { map.set(e.ingredient_id, { name: e.ingredient_name, unit: e.unit, total: e.quantity_used }) }
+      })
+    return Array.from(map.entries())
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => b.total - a.total)
+  }, [usageEntries])
+
+  const ingredientCostToday = useMemo(() => {
+    return todayUsage.reduce((sum, entry) => {
+      const ing = ingredients.find(i => i.id === entry.id)
+      if (!ing) return sum
+      const qtyInStockUnit = convertToStockUnit(entry.total, entry.unit, ing.unit)
+      return sum + qtyInStockUnit * ing.costPerUnit
+    }, 0)
+  }, [todayUsage, ingredients])
 
   const filteredTx = useMemo(() => {
     const start = getTxPeriodStart(txPeriod)
@@ -260,6 +287,14 @@ export default function DashboardPage() {
             changeLabel="Needs restocking"
             icon={FlaskConical}
             accent="rose"
+          />
+          <StatCard
+            title="Ingredient Cost Today"
+            value={formatCurrency(ingredientCostToday)}
+            change={0}
+            changeLabel="Based on usage today"
+            icon={DollarSign}
+            accent="emerald"
           />
         </div>
 
@@ -545,6 +580,59 @@ export default function DashboardPage() {
 
           </div>
         </div>
+
+        {/* Ingredient Usage Today */}
+        <div className="bg-white rounded-2xl border border-surface-100 shadow-card">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
+            <div>
+              <h3 className="text-base font-semibold text-surface-900">Ingredient Usage Today</h3>
+              <p className="text-xs text-surface-500 mt-0.5">Aggregated from completed sales</p>
+            </div>
+            <Link
+              href="/dashboard/reports"
+              className="flex items-center gap-1 text-xs text-brand-600 font-semibold hover:underline"
+            >
+              Full report <ChevronRight className="h-3 w-3" />
+            </Link>
+          </div>
+          {todayUsage.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-10 text-surface-400">
+              <FlaskConical className="h-8 w-8 opacity-30" />
+              <p className="text-sm">No ingredient usage recorded today</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-surface-50 bg-surface-50/30">
+                    <th className="px-6 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Ingredient</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">Used Today</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Unit</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">Est. Cost</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface-50">
+                  {todayUsage.map(entry => {
+                    const ing = ingredients.find(i => i.id === entry.id)
+                    const qtyInStockUnit = ing ? convertToStockUnit(entry.total, entry.unit, ing.unit) : entry.total
+                    const cost = qtyInStockUnit * (ing?.costPerUnit ?? 0)
+                    return (
+                      <tr key={entry.id} className="hover:bg-surface-50/50 transition-colors">
+                        <td className="px-6 py-3 text-sm font-semibold text-surface-800">{entry.name}</td>
+                        <td className="px-4 py-3 text-sm font-bold text-surface-900 text-right num-display">{entry.total}</td>
+                        <td className="px-4 py-3 text-sm text-surface-500">{entry.unit}</td>
+                        <td className="px-4 py-3 text-sm font-semibold text-emerald-600 text-right num-display">
+                          {cost > 0 ? formatCurrency(cost) : <span className="text-surface-300">—</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   )

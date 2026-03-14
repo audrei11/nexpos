@@ -80,6 +80,21 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
+/**
+ * Convert a quantity from one unit to another (recipe unit → stock unit).
+ * e.g. 200 g → 0.2 kg so cost calculation is correct.
+ */
+export function convertToStockUnit(qty: number, fromUnit: string | undefined, toUnit: string): number {
+  const from = (fromUnit ?? toUnit).trim()
+  const to   = toUnit.trim()
+  if (from === to) return qty
+  if (from === 'g'  && to === 'kg') return qty / 1000
+  if (from === 'kg' && to === 'g')  return qty * 1000
+  if (from === 'ml' && to === 'L')  return qty / 1000
+  if (from === 'L'  && to === 'ml') return qty * 1000
+  return qty
+}
+
 export function guessIngredientEmoji(name: string): string {
   const n = name.toLowerCase()
   if (/milk|cream|dairy/.test(n))                        return '🥛'
