@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, ImagePlus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Ingredient } from '@/lib/types'
+import toast from 'react-hot-toast'
 
 const UNITS = ['g', 'kg', 'ml', 'L', 'pcs', 'tsp', 'tbsp', 'cup', 'oz', 'lb']
 
@@ -109,7 +110,7 @@ export function IngredientModal({ isOpen, ingredient, onClose, onSave, onDelete 
       const compressed = await compressIngredientImage(file)
       setForm(prev => ({ ...prev, imageUrl: compressed }))
     } catch {
-      // silently fail — user keeps emoji
+      toast.error('Could not process image. Try another file.')
     } finally {
       setImageUploading(false)
       e.target.value = ''
@@ -122,7 +123,7 @@ export function IngredientModal({ isOpen, ingredient, onClose, onSave, onDelete 
     const e: typeof errors = {}
     if (!form.name.trim()) e.name = 'Name is required'
     if (form.stock === '' || isNaN(+form.stock) || +form.stock < 0) e.stock = 'Valid stock required'
-    if (form.minStock === '' || isNaN(+form.minStock)) e.minStock = 'Valid min stock required'
+    if (form.minStock === '' || isNaN(+form.minStock) || +form.minStock < 0) e.minStock = 'Valid min stock required'
     if (form.costPerUnit === '' || isNaN(+form.costPerUnit) || +form.costPerUnit < 0) e.costPerUnit = 'Valid cost required'
     setErrors(e)
     return Object.keys(e).length === 0
@@ -137,7 +138,7 @@ export function IngredientModal({ isOpen, ingredient, onClose, onSave, onDelete 
       unit:        form.unit,
       stock:       +form.stock,
       minStock:    +form.minStock,
-      costPerUnit: +form.costPerUnit,
+      costPerUnit: Math.round(+form.costPerUnit * 100) / 100,
       emoji:       form.emoji,
       imageUrl:    form.imageUrl || undefined,
     })
@@ -413,7 +414,7 @@ export function IngredientModal({ isOpen, ingredient, onClose, onSave, onDelete 
           )}
 
           <div className="flex items-center gap-2">
-            {isEdit && onDelete && (
+            {isEdit && onDelete && !confirmDelete && (
               <button
                 type="button"
                 onClick={onClose}

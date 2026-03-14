@@ -188,20 +188,24 @@ export function IngredientsProvider({ children }: { children: React.ReactNode })
   // localStorage only has text data; images live in IndexedDB.
   // This runs once and re-attaches the saved base64 URLs to in-memory state.
   useEffect(() => {
+    let isMounted = true
     loadAllIngredientImages().then(idbImages => {
+      if (!isMounted) return
       if (!Object.keys(idbImages).length) return
       rawSetIngredients(prev => {
         let changed = false
         const updated = prev.map(ing => {
-          if (!ing.imageUrl && idbImages[ing.id]) {
+          const imgData = idbImages[ing.id]
+          if (!ing.imageUrl && imgData !== undefined && imgData !== '') {
             changed = true
-            return { ...ing, imageUrl: idbImages[ing.id] }
+            return { ...ing, imageUrl: imgData }
           }
           return ing
         })
         return changed ? updated : prev
       })
     }).catch(() => { /* IndexedDB unavailable — no images shown */ })
+    return () => { isMounted = false }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Effect 2: fetch from Sheets on mount ────────────────────────────────

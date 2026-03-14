@@ -27,7 +27,7 @@ function PaymentModal({
   onConfirm: (method: PaymentMethod, tendered?: number) => void
 }) {
   const [method, setMethod] = useState<PaymentMethod>('card')
-  const [cashInput, setCashInput] = useState(total.toFixed(2))
+  const [cashInput, setCashInput] = useState('')
   const [processing, setProcessing] = useState(false)
   const [success, setSuccess] = useState(false)
 
@@ -131,29 +131,79 @@ function PaymentModal({
         {/* Cash method */}
         {method === 'cash' && (
           <div className="mx-6 mb-4 animate-fade-in">
-            {/* Cash input + change */}
-            <div className="flex gap-3 mb-4">
+            {/* Tendered + Change display */}
+            <div className="flex gap-3 mb-3">
               <div className="flex-1 rounded-xl border border-surface-200 bg-surface-50 p-3 text-center">
-                <p className="text-xs text-surface-500 font-medium">Tendered</p>
+                <p className="text-xs text-surface-500 font-medium">Cash Tendered</p>
                 <p className="text-xl font-bold text-surface-900 num-display mt-0.5">
-                  ₱{cashInput || '0.00'}
+                  {cashInput ? `₱${cashInput}` : <span className="text-surface-300">₱0.00</span>}
                 </p>
               </div>
               <div className={cn(
                 'flex-1 rounded-xl border p-3 text-center transition-all',
-                change > 0
-                  ? 'border-emerald-200 bg-emerald-50'
-                  : 'border-surface-200 bg-surface-50'
+                change > 0 ? 'border-emerald-200 bg-emerald-50' : 'border-surface-200 bg-surface-50'
               )}>
                 <p className="text-xs text-surface-500 font-medium">Change</p>
                 <p className={cn(
                   'text-xl font-bold num-display mt-0.5',
-                  change > 0 ? 'text-emerald-600' : 'text-surface-900'
+                  change > 0 ? 'text-emerald-600' : 'text-surface-300'
                 )}>
-                  {formatCurrency(change)}
+                  {change > 0 ? formatCurrency(change) : '₱0.00'}
                 </p>
               </div>
             </div>
+
+            {/* Quick denomination buttons */}
+            <div className="grid grid-cols-4 gap-1.5 mb-3">
+              {[50, 100, 200, 500].map(bill => (
+                <button
+                  key={bill}
+                  onClick={() => setCashInput(String(bill))}
+                  className={cn(
+                    'h-9 rounded-xl border text-xs font-bold transition-all active:scale-95',
+                    cashTendered === bill
+                      ? 'border-brand-300 bg-brand-50 text-brand-700'
+                      : 'border-surface-200 bg-white text-surface-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'
+                  )}
+                >
+                  ₱{bill}
+                </button>
+              ))}
+              <button
+                onClick={() => setCashInput('1000')}
+                className={cn(
+                  'h-9 rounded-xl border text-xs font-bold transition-all active:scale-95',
+                  cashTendered === 1000
+                    ? 'border-brand-300 bg-brand-50 text-brand-700'
+                    : 'border-surface-200 bg-white text-surface-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'
+                )}
+              >
+                ₱1,000
+              </button>
+              <button
+                onClick={() => setCashInput('5000')}
+                className={cn(
+                  'h-9 rounded-xl border text-xs font-bold transition-all active:scale-95',
+                  cashTendered === 5000
+                    ? 'border-brand-300 bg-brand-50 text-brand-700'
+                    : 'border-surface-200 bg-white text-surface-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'
+                )}
+              >
+                ₱5,000
+              </button>
+              <button
+                onClick={() => setCashInput(total.toFixed(2))}
+                className={cn(
+                  'col-span-2 h-9 rounded-xl border text-xs font-bold transition-all active:scale-95',
+                  cashTendered === total
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                )}
+              >
+                Exact ({formatCurrency(total)})
+              </button>
+            </div>
+
             {/* Numpad */}
             <div className="grid grid-cols-3 gap-2">
               {NUMPAD.map((k) => (
@@ -219,6 +269,11 @@ function PaymentModal({
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                 </svg>
                 Processing...
+              </span>
+            ) : method === 'cash' && change > 0 ? (
+              <span className="flex flex-col items-center leading-tight">
+                <span className="text-base font-bold">Confirm {formatCurrency(total)}</span>
+                <span className="text-xs font-semibold opacity-80">Change: {formatCurrency(change)}</span>
               </span>
             ) : (
               `Confirm ${formatCurrency(total)}`

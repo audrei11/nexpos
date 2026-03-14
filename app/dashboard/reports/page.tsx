@@ -11,11 +11,12 @@ import {
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import { Header } from '@/components/layout/header'
-import { cn, formatCurrency, formatDateTime } from '@/lib/utils'
+import { cn, formatCurrency, formatDateTime, guessIngredientEmoji } from '@/lib/utils'
 import { CATEGORIES } from '@/lib/mock-data'
 import { useTransactions } from '@/lib/transactions-context'
 import { useProducts } from '@/lib/products-context'
 import { useIngredientUsage } from '@/lib/ingredient-usage-context'
+import { useIngredients } from '@/lib/ingredients-context'
 import toast from 'react-hot-toast'
 
 // Category colour palette (keyed by category id)
@@ -65,41 +66,80 @@ export default function ReportsPage() {
   const { transactions } = useTransactions()
   const { products } = useProducts()
   const { usageEntries } = useIngredientUsage()
+  const { ingredients } = useIngredients()
 
-  // ── Ingredient usage — last 7 days ──────────────────────────────────────
-  const ingUsageLast7Days = useMemo(() => {
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 6); cutoff.setHours(0, 0, 0, 0)
-    return usageEntries.filter(e => new Date(e.timestamp) >= cutoff)
-  }, [usageEntries])
+  // ── Ingredient usage — follows selected period ───────────────────────────
+  const ingUsageFiltered = useMemo(() => {
+    const start = getPeriodStart(period)
+    return usageEntries.filter(e => new Date(e.timestamp) >= start)
+  }, [usageEntries, period])
 
-  // A. Top Used Ingredients — bar chart (aggregate by ingredient, last 7d)
+  // A. Top Used Ingredients — bar chart (aggregate by ingredient, selected period)
   const topUsedIngredients = useMemo(() => {
     const map = new Map<string, { name: string; total: number; unit: string }>()
-    ingUsageLast7Days.forEach(e => {
+    ingUsageFiltered.forEach(e => {
       const cur = map.get(e.ingredient_id)
       if (cur) { cur.total += e.quantity_used }
       else { map.set(e.ingredient_id, { name: e.ingredient_name, total: e.quantity_used, unit: e.unit }) }
     })
     return Array.from(map.values()).sort((a, b) => b.total - a.total).slice(0, 8)
-  }, [ingUsageLast7Days])
+  }, [ingUsageFiltered])
 
-  // B. Ingredient Usage Trend — line chart (daily totals per top-3 ingredients, last 7d)
+  // B. Ingredient Usage Trend — line chart (per top-3 ingredients, selected period)
   const ingTrendData = useMemo(() => {
     const top3 = topUsedIngredients.slice(0, 3).map(i => i.name)
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(); d.setDate(d.getDate() - (6 - i)); d.setHours(0, 0, 0, 0)
+
+    if (period === 'today') {
+      // Hourly buckets (business hours 7–21)
+      const slots = Array.from({ length: 15 }, (_, i) => `${i + 7}:00`)
+      const buckets: Record<string, Record<string, number>> = {}
+      slots.forEach(s => { buckets[s] = {} })
+      ingUsageFiltered.forEach(e => {
+        if (!top3.includes(e.ingredient_name)) return
+        const key = `${new Date(e.timestamp).getHours()}:00`
+        if (!buckets[key]) return
+        buckets[key][e.ingredient_name] = (buckets[key][e.ingredient_name] ?? 0) + e.quantity_used
+      })
+      return slots.map(s => ({ date: s, ...buckets[s] }))
+    }
+
+    if (period === '90d') {
+      // Weekly buckets — 13 weeks
+      const weeks = Array.from({ length: 13 }, (_, w) => {
+        const d = new Date(); d.setDate(d.getDate() - (12 - w) * 7); d.setHours(0, 0, 0, 0)
+        return { label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), start: new Date(d) }
+      })
+      const result = weeks.map(({ label, start }) => {
+        const entry: Record<string, number> = { date: label as unknown as number }
+        const end = new Date(start); end.setDate(end.getDate() + 7)
+        ingUsageFiltered.forEach(e => {
+          if (!top3.includes(e.ingredient_name)) return
+          const t = new Date(e.timestamp)
+          if (t >= start && t < end) {
+            entry[e.ingredient_name] = ((entry[e.ingredient_name] as number) ?? 0) + e.quantity_used
+          }
+        })
+        return entry
+      })
+      return result as Array<{ date: string } & Record<string, number>>
+    }
+
+    // Daily buckets (7d or 30d)
+    const days = period === '7d' ? 7 : 30
+    const labels = Array.from({ length: days }, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - (days - 1 - i))
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     })
     const buckets: Record<string, Record<string, number>> = {}
-    days.forEach(day => { buckets[day] = {} })
-    ingUsageLast7Days.forEach(e => {
+    labels.forEach(l => { buckets[l] = {} })
+    ingUsageFiltered.forEach(e => {
       if (!top3.includes(e.ingredient_name)) return
       const day = new Date(e.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       if (!buckets[day]) return
       buckets[day][e.ingredient_name] = (buckets[day][e.ingredient_name] ?? 0) + e.quantity_used
     })
-    return days.map(day => ({ date: day, ...buckets[day] }))
-  }, [ingUsageLast7Days, topUsedIngredients])
+    return labels.map(day => ({ date: day, ...buckets[day] }))
+  }, [ingUsageFiltered, topUsedIngredients, period])
 
   const ingTrendLines = useMemo(() => topUsedIngredients.slice(0, 3).map((ing, i) => ({
     name: ing.name,
@@ -200,6 +240,42 @@ export default function ReportsPage() {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5)
   }, [filteredTx, products])
+
+  // ── Product Sales breakdown ──────────────────────────────────────────────
+  const productSales = useMemo(() => {
+    const map: Record<string, { name: string; emoji: string; qty: number; revenue: number }> = {}
+    filteredTx.forEach(tx => {
+      tx.items.forEach(item => {
+        const product = products.find(p => p.id === item.productId)
+        if (!map[item.productId]) {
+          map[item.productId] = { name: item.productName, emoji: product?.emoji ?? '📦', qty: 0, revenue: 0 }
+        }
+        map[item.productId].qty     += item.quantity
+        map[item.productId].revenue += item.total
+      })
+    })
+    return Object.values(map).sort((a, b) => b.qty - a.qty)
+  }, [filteredTx, products])
+
+  // ── Ingredient consumption (from sales only — entries that have a product_id) ──
+  const ingredientConsumption = useMemo(() => {
+    const map: Record<string, { name: string; emoji: string; total: number; unit: string }> = {}
+    ingUsageFiltered
+      .filter(e => e.product_id)
+      .forEach(e => {
+        if (!map[e.ingredient_id]) {
+          const ing = ingredients.find(i => i.id === e.ingredient_id)
+          map[e.ingredient_id] = {
+            name:  e.ingredient_name,
+            emoji: ing?.emoji || guessIngredientEmoji(e.ingredient_name),
+            total: 0,
+            unit:  e.unit,
+          }
+        }
+        map[e.ingredient_id].total += e.quantity_used
+      })
+    return Object.values(map).sort((a, b) => b.total - a.total)
+  }, [ingUsageFiltered, ingredients])
 
   const hasData = filteredTx.length > 0
 
@@ -428,9 +504,117 @@ export default function ReportsPage() {
           )}
         </div>
 
-        {/* ── Ingredient Usage — Last 7 Days ─────────────────────────── */}
+        {/* ── Product Sales + Ingredient Consumption ──────────────────── */}
         <div>
-          <h3 className="text-base font-semibold text-surface-900 mb-4">Ingredient Usage — Last 7 Days</h3>
+          <h3 className="text-base font-semibold text-surface-900 mb-4">
+            Products Sold &amp; Ingredients Used — {period === 'today' ? 'Today' : period === '7d' ? 'Last 7 Days' : period === '30d' ? 'Last 30 Days' : 'Last 90 Days'}
+          </h3>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
+            {/* Products Sold */}
+            <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-6">
+              <div className="flex items-center gap-2 mb-1">
+                <ShoppingCart className="h-4 w-4 text-brand-500" />
+                <h4 className="text-sm font-semibold text-surface-900">Products Sold</h4>
+              </div>
+              <p className="text-xs text-surface-500 mb-5">Units sold per product in this period</p>
+              {productSales.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-surface-400 text-sm">
+                  No sales in this period
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {productSales.map((p, idx) => {
+                    const pct = Math.round((p.qty / productSales[0].qty) * 100)
+                    return (
+                      <div key={p.name} className="flex items-center gap-3 group">
+                        <span className="text-xs font-bold text-surface-300 w-4 flex-shrink-0">{idx + 1}</span>
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-surface-50 text-lg">
+                          {p.emoji}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-xs font-semibold text-surface-800 truncate">{p.name}</p>
+                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                              <span className="text-xs font-bold text-brand-600 num-display">{p.qty}x</span>
+                              <span className="text-xs text-surface-400 num-display">{formatCurrency(p.revenue)}</span>
+                            </div>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-surface-100 overflow-hidden">
+                            <div className="h-full rounded-full bg-brand-gradient transition-all duration-500" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {productSales.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-surface-100 flex items-center justify-between">
+                  <span className="text-xs text-surface-500">Total units sold</span>
+                  <span className="text-sm font-black text-surface-900 num-display">
+                    {productSales.reduce((s, p) => s + p.qty, 0)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Ingredients Consumed */}
+            <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-6">
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp className="h-4 w-4 text-emerald-500" />
+                <h4 className="text-sm font-semibold text-surface-900">Ingredients Consumed</h4>
+              </div>
+              <p className="text-xs text-surface-500 mb-5">Total ingredients used from all sales</p>
+              {ingredientConsumption.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 gap-2 text-surface-400 text-sm text-center">
+                  <span>No ingredient usage recorded</span>
+                  <span className="text-xs text-surface-300">Set up recipes on your products to track this</span>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {ingredientConsumption.map((ing, idx) => {
+                    const pct = Math.round((ing.total / ingredientConsumption[0].total) * 100)
+                    return (
+                      <div key={ing.name} className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-surface-300 w-4 flex-shrink-0">{idx + 1}</span>
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-lg">
+                          {ing.emoji}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-xs font-semibold text-surface-800 truncate">{ing.name}</p>
+                            <span className="text-xs font-bold text-emerald-600 num-display flex-shrink-0 ml-2">
+                              {ing.total % 1 === 0 ? ing.total : ing.total.toFixed(2)} {ing.unit}
+                            </span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-surface-100 overflow-hidden">
+                            <div className="h-full rounded-full bg-emerald-400 transition-all duration-500" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {ingredientConsumption.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-surface-100 flex items-center justify-between">
+                  <span className="text-xs text-surface-500">Unique ingredients used</span>
+                  <span className="text-sm font-black text-surface-900 num-display">
+                    {ingredientConsumption.length}
+                  </span>
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+
+        {/* ── Ingredient Usage ────────────────────────────────────────── */}
+        <div>
+          <h3 className="text-base font-semibold text-surface-900 mb-4">
+            Ingredient Usage — {period === 'today' ? 'Today' : period === '7d' ? 'Last 7 Days' : period === '30d' ? 'Last 30 Days' : 'Last 90 Days'}
+          </h3>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
 
             {/* A. Top Used Ingredients — bar chart */}
@@ -439,7 +623,7 @@ export default function ReportsPage() {
               <p className="text-xs text-surface-500 mb-5">Total quantity consumed per ingredient</p>
               {topUsedIngredients.length === 0 ? (
                 <div className="flex items-center justify-center h-[200px] text-surface-400 text-sm">
-                  No ingredient usage recorded in the last 7 days
+                  No ingredient usage recorded in this period
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={200}>
@@ -462,7 +646,9 @@ export default function ReportsPage() {
             {/* B. Ingredient Usage Trend — line chart (top 3) */}
             <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-6">
               <h4 className="text-sm font-semibold text-surface-900 mb-1">Usage Trend</h4>
-              <p className="text-xs text-surface-500 mb-5">Daily usage for top 3 ingredients</p>
+              <p className="text-xs text-surface-500 mb-5">
+                {period === 'today' ? 'Hourly' : period === '90d' ? 'Weekly' : 'Daily'} usage for top 3 ingredients
+              </p>
               {ingTrendLines.length === 0 ? (
                 <div className="flex items-center justify-center h-[200px] text-surface-400 text-sm">
                   No usage trend data yet

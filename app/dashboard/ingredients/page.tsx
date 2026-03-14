@@ -5,13 +5,14 @@ import { Plus, Search, FlaskConical, LayoutGrid, List, Pencil, Trash2, AlertTria
 import { Header } from '@/components/layout/header'
 import { Badge } from '@/components/ui/badge'
 import { IngredientModal } from '@/components/ingredients/ingredient-modal'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency, guessIngredientEmoji } from '@/lib/utils'
 import { useIngredients } from '@/lib/ingredients-context'
 import { useAuth } from '@/lib/auth-context'
 import { saveIngredientToSheets, logIngredientUsage } from '@/lib/sheets'
 import type { Ingredient } from '@/lib/types'
 import toast from 'react-hot-toast'
 
+// ─── Smart emoji fallback based on ingredient name ────────────────────────
 // ─── Ingredient Card (grid view) ─────────────────────────────────────────
 function IngredientCard({
   ingredient,
@@ -28,7 +29,8 @@ function IngredientCard({
 }) {
   const isOut  = ingredient.stock === 0
   const isLow  = !isOut && ingredient.stock <= ingredient.minStock
-  const pct    = Math.min(100, Math.round((ingredient.stock / Math.max(ingredient.minStock * 4, 1)) * 100))
+  const rawPct = Math.round((ingredient.stock / Math.max(ingredient.minStock * 4, 1)) * 100)
+  const pct    = isNaN(rawPct) ? 0 : Math.min(100, rawPct)
   const barColor = isOut ? 'bg-rose-400' : isLow ? 'bg-amber-400' : 'bg-emerald-500'
 
   return (
@@ -52,14 +54,10 @@ function IngredientCard({
               e.currentTarget.parentElement?.appendChild(span)
             }}
           />
-        ) : ingredient.emoji ? (
-          <span className="absolute inset-0 flex items-center justify-center text-4xl group-hover/card:scale-110 transition-transform duration-300">
-            {ingredient.emoji}
-          </span>
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <FlaskConical className="h-10 w-10 text-emerald-300 group-hover/card:scale-110 transition-transform duration-300" />
-          </div>
+          <span role="img" aria-label={ingredient.name} suppressHydrationWarning className="absolute inset-0 flex items-center justify-center text-4xl group-hover/card:scale-110 transition-transform duration-300">
+            {ingredient.emoji || guessIngredientEmoji(ingredient.name)}
+          </span>
         )}
 
         {/* Status pill */}
@@ -156,7 +154,8 @@ export default function IngredientsPage() {
     if (data.id) {
       // Edit
       const existing = ingredients.find(i => i.id === data.id)
-      const updated: Ingredient = { ...(existing!), ...data, id: data.id, updatedAt: now }
+      if (!existing) { toast.error('Ingredient not found.'); return }
+      const updated: Ingredient = { ...existing, ...data, id: data.id, updatedAt: now }
       setIngredients(prev => prev.map(i => i.id === data.id ? updated : i))
       saveIngredientToSheets('updateIngredient', {
         id: updated.id, name: updated.name, unit: updated.unit,
@@ -279,7 +278,9 @@ export default function IngredientsPage() {
               <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl text-xl mb-3', bg)}>
                 {icon}
               </div>
-              <p className={cn('text-2xl font-black', color)}>{value}</p>
+              {mounted
+                ? <p className={cn('text-2xl font-black', color)}>{value}</p>
+                : <div className="h-8 w-20 rounded-lg bg-surface-100 animate-pulse mb-1" />}
               <p className="text-sm font-semibold text-surface-700 mt-0.5">{label}</p>
               <p className="text-xs text-surface-400 mt-0.5">{sub}</p>
             </div>
@@ -441,10 +442,8 @@ export default function IngredientsPage() {
                                   e.currentTarget.parentElement?.appendChild(span)
                                 }}
                               />
-                            ) : ingredient.emoji ? (
-                              ingredient.emoji
                             ) : (
-                              <FlaskConical className="h-4 w-4 text-emerald-600" />
+                              <span role="img" aria-label={ingredient.name} suppressHydrationWarning>{ingredient.emoji || guessIngredientEmoji(ingredient.name)}</span>
                             )}
                           </div>
                           <p className="text-sm font-semibold text-surface-900">{ingredient.name}</p>
