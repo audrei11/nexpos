@@ -112,6 +112,66 @@ function doGet(e) {
     return ContentService.createTextOutput(JSON.stringify(rows)).setMimeType(ContentService.MimeType.JSON);
   }
 
+  if (action === 'getTransactions') {
+    var txSheet    = ss.getSheetByName('transactions');
+    var itemsSheet = ss.getSheetByName('transaction_items');
+    if (!txSheet || txSheet.getLastRow() < 2)
+      return ContentService.createTextOutput('[]').setMimeType(ContentService.MimeType.JSON);
+
+    var txData     = txSheet.getDataRange().getValues();
+    var txHeaders  = txData[0];
+    var txRows     = txData.slice(1).map(function(row) {
+      var obj = {};
+      txHeaders.forEach(function(h, i) { obj[h] = row[i]; });
+      return obj;
+    });
+
+    // Build items map: transaction_id → [items]
+    var itemsMap = {};
+    if (itemsSheet && itemsSheet.getLastRow() >= 2) {
+      var itemsData    = itemsSheet.getDataRange().getValues();
+      var itemsHeaders = itemsData[0];
+      itemsData.slice(1).forEach(function(row) {
+        var item = {};
+        itemsHeaders.forEach(function(h, i) { item[h] = row[i]; });
+        var txId = String(item.transaction_id);
+        if (!itemsMap[txId]) itemsMap[txId] = [];
+        itemsMap[txId].push({
+          product_id:   String(item.product_id   || ''),
+          product_name: String(item.product_name || ''),
+          quantity:     Number(item.quantity)    || 0,
+          unit_price:   Number(item.unit_price)  || 0,
+          subtotal:     Number(item.subtotal)    || 0
+        });
+      });
+    }
+
+    var result = txRows.map(function(tx) {
+      var txId = String(tx.transaction_id);
+      return {
+        id:             txId,
+        orderNumber:    txId,
+        subtotal:       Number(tx.subtotal)        || 0,
+        discount:       Number(tx.discount_amount) || 0,
+        discount_amount:Number(tx.discount_amount) || 0,
+        tax:            Number(tx.tax_amount)      || 0,
+        tax_amount:     Number(tx.tax_amount)      || 0,
+        total:          Number(tx.total)           || 0,
+        payment_method: String(tx.payment_method  || 'cash'),
+        paymentMethod:  String(tx.payment_method  || 'cash'),
+        status:         'completed',
+        cashier:        String(tx.cashier || ''),
+        cashierName:    String(tx.cashier || ''),
+        date:           String(tx.date    || ''),
+        createdAt:      String(tx.date    || ''),
+        updatedAt:      String(tx.date    || ''),
+        items:          itemsMap[txId] || []
+      };
+    });
+
+    return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+  }
+
   return ContentService.createTextOutput('[]').setMimeType(ContentService.MimeType.JSON);
 }
 
