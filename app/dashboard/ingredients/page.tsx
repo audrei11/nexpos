@@ -1,4 +1,6 @@
 'use client'
+export const dynamic = 'force-dynamic'
+
 
 import { useState, useCallback, useEffect } from 'react'
 import { Plus, Search, FlaskConical, LayoutGrid, List, Pencil, Trash2, AlertTriangle } from 'lucide-react'

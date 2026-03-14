@@ -1,4 +1,6 @@
 'use client'
+export const dynamic = 'force-dynamic'
+
 
 import { useState } from 'react'
 import { Search, Plus, Mail, Phone, ShoppingBag, Calendar } from 'lucide-react'
