@@ -33,24 +33,26 @@ interface StoreConfig {
 
 // ── Store configurations ────────────────────────────────────────────────────
 // To add a store: add an entry here and in CREDENTIALS below.
+const SHARED_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzX17HURZDCTyLyTN7q7-mDKclYkZfRAuILrphqovGq9_jqXzdnnNWsEseWaEpMCZW9-w/exec'
+
 const STORE_CONFIGS: Record<string, StoreConfig> = {
   'cafe@test.com': {
     name: 'Café Store',
     emoji: '☕',
     role: 'owner',
-    googleScriptUrl: '',
+    googleScriptUrl: SHARED_SCRIPT_URL,
   },
   'elec@test.com': {
     name: 'Electronics Store',
     emoji: '⚡',
     role: 'owner',
-    googleScriptUrl: '',
+    googleScriptUrl: SHARED_SCRIPT_URL,
   },
   'cloth@test.com': {
     name: 'Clothing Store',
     emoji: '👕',
     role: 'owner',
-    googleScriptUrl: '',
+    googleScriptUrl: SHARED_SCRIPT_URL,
   },
 }
 
