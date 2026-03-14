@@ -40,8 +40,8 @@ function CustomTooltip({ active, payload, label }: {
   return (
     <div className="bg-surface-900 rounded-xl px-3 py-2 shadow-card-lg border border-white/10">
       <p className="text-xs text-surface-400 mb-1">{label}</p>
-      {payload.map(p => (
-        <p key={p.name + idx} className="text-sm font-bold text-white num-display">
+      {payload.map((p, i) => (
+        <p key={p.name + i} className="text-sm font-bold text-white num-display">
           {p.name === 'revenue' ? formatCurrency(p.value) : p.value}
         </p>
       ))}
