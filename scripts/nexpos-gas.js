@@ -38,6 +38,7 @@ function doPost(e) {
       case 'saveCustomer':       handleCustomer(ss, payload);          break;
       case 'saveProduct':        handleProduct(ss, payload);           break;
       case 'updateProduct':      handleUpdateProduct(ss, payload);     break;
+      case 'deleteProduct':      handleDeleteProduct(ss, payload);     break;
       case 'logInventory':       handleInventoryLog(ss, payload);      break;
       case 'clearStoreData':     handleClearStoreData(ss);             break;
       case 'uploadImage':        return handleUploadImage(payload);
@@ -316,6 +317,18 @@ function productObj(p) {
 function handleProduct(ss, p) {
   var sheet = getOrCreateSheet(ss, 'products', PRODUCT_HEADERS);
   appendRowObj(sheet, productObj(p));
+}
+
+function handleDeleteProduct(ss, p) {
+  var sheet = ss.getSheetByName('products');
+  if (!sheet) return;
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(p.id)) {
+      sheet.deleteRow(i + 1);
+      return;
+    }
+  }
 }
 
 function handleUpdateProduct(ss, p) {

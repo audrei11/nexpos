@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import type { Product } from '@/lib/types'
-import { fetchFromSheetsProxy, saveProductToSheets } from '@/lib/sheets'
+import { fetchFromSheetsProxy, saveProductToSheets, deleteProductFromSheets } from '@/lib/sheets'
 import { saveImage, loadAllImages, deleteImage } from '@/lib/image-store'
 import { readUserStorage, writeUserStorage, removeUserStorage } from '@/lib/storage'
 
@@ -307,6 +307,8 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
     }
     // Remove from state + localStorage + IndexedDB images
     setProductsPersisted(prev => prev.filter(p => !isSameProduct(p, product)))
+    // Remove from Google Sheets so it doesn't come back on next sync
+    deleteProductFromSheets(product.id).catch(() => {})
   }, [setProductsPersisted])
 
   const resetProducts = useCallback(() => {

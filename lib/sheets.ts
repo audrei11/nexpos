@@ -122,6 +122,10 @@ export async function saveProductToSheets(
   await postToSheets({ action, ...product })
 }
 
+export async function deleteProductFromSheets(id: string): Promise<void> {
+  await postToSheets({ action: 'deleteProduct', id })
+}
+
 // ─── Image upload ─────────────────────────────────────────────────────────────
 /**
  * Uploads a product image via the Next.js proxy route → Google Apps Script → Google Drive.
