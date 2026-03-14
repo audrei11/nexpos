@@ -41,7 +41,7 @@ function CustomTooltip({ active, payload, label }: {
     <div className="bg-surface-900 rounded-xl px-3 py-2 shadow-card-lg border border-white/10">
       <p className="text-xs text-surface-400 mb-1">{label}</p>
       {payload.map(p => (
-        <p key={p.name} className="text-sm font-bold text-white num-display">
+        <p key={p.name + idx} className="text-sm font-bold text-white num-display">
           {p.name === 'revenue' ? formatCurrency(p.value) : p.value}
         </p>
       ))}
@@ -434,7 +434,7 @@ export default function ReportsPage() {
                 {bestSellers.map((p, idx) => {
                   const pct = (p.revenue / bestSellers[0].revenue) * 100
                   return (
-                    <div key={p.name} className="flex items-center gap-3">
+                    <div key={p.name + idx} className="flex items-center gap-3">
                       <span className="text-xs font-bold text-surface-300 w-4 flex-shrink-0">{idx + 1}</span>
                       <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-surface-50 text-lg">
                         {p.emoji}
@@ -529,7 +529,7 @@ export default function ReportsPage() {
                   {productSales.map((p, idx) => {
                     const pct = Math.round((p.qty / productSales[0].qty) * 100)
                     return (
-                      <div key={p.name} className="flex items-center gap-3 group">
+                      <div key={p.name + idx} className="flex items-center gap-3 group">
                         <span className="text-xs font-bold text-surface-300 w-4 flex-shrink-0">{idx + 1}</span>
                         <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-surface-50 text-lg">
                           {p.emoji}
