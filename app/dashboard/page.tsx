@@ -6,7 +6,7 @@ import { useState, useMemo } from 'react'
 import {
   TrendingUp, TrendingDown, ShoppingCart, Package,
   DollarSign,
-  Clock, ChevronRight,
+  Clock, ChevronRight, X, Search, History,
   Activity, Boxes, FlaskConical
 } from 'lucide-react'
 import {
@@ -125,6 +125,144 @@ const paymentConfig = {
   credit: { label: 'Credit', icon: '🏦' },
 }
 
+// ─── Transaction History Modal ─────────────────────────────────────────────
+function TxHistoryModal({
+  transactions, onClose,
+}: {
+  transactions: import('@/lib/types').Order[]
+  onClose: () => void
+}) {
+  const [search, setSearch] = useState('')
+  const [filterPeriod, setFilterPeriod] = useState<'all' | 'today' | '7d' | '30d'>('all')
+
+  const filtered = useMemo(() => {
+    let list = [...transactions].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )
+    if (filterPeriod !== 'all') {
+      const now = new Date()
+      const cutoff = new Date(now)
+      if (filterPeriod === 'today') cutoff.setHours(0, 0, 0, 0)
+      else if (filterPeriod === '7d') { cutoff.setDate(cutoff.getDate() - 7); cutoff.setHours(0,0,0,0) }
+      else if (filterPeriod === '30d') { cutoff.setDate(cutoff.getDate() - 30); cutoff.setHours(0,0,0,0) }
+      list = list.filter(tx => new Date(tx.createdAt) >= cutoff)
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(tx =>
+        tx.orderNumber.toLowerCase().includes(q) ||
+        tx.items.some(i => i.productName.toLowerCase().includes(q)) ||
+        (tx.customerName ?? '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [transactions, search, filterPeriod])
+
+  const totalRev = filtered
+    .filter(tx => tx.status === 'completed')
+    .reduce((s, tx) => s + tx.total, 0)
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[88vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50">
+              <History className="h-5 w-5 text-brand-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-surface-900">Transaction History</h2>
+              <p className="text-xs text-surface-500">{filtered.length} records · {formatCurrency(totalRev)} total</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-surface-400 hover:bg-surface-100 hover:text-surface-700 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className="px-6 py-3 border-b border-surface-100 flex items-center gap-3 flex-shrink-0 flex-wrap">
+          {/* Search */}
+          <div className="flex items-center gap-2 flex-1 min-w-[160px] rounded-lg border border-surface-200 bg-surface-50 px-3 py-1.5">
+            <Search className="h-3.5 w-3.5 text-surface-400 flex-shrink-0" />
+            <input
+              type="text"
+              placeholder="Search order, product, customer..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="flex-1 bg-transparent text-xs text-surface-700 placeholder:text-surface-400 outline-none"
+            />
+          </div>
+          {/* Period filter */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-surface-200 bg-surface-50 p-0.5">
+            {(['all', 'today', '7d', '30d'] as const).map(p => (
+              <button
+                key={p}
+                onClick={() => setFilterPeriod(p)}
+                className={cn(
+                  'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
+                  filterPeriod === p ? 'bg-white text-brand-600 shadow-sm' : 'text-surface-500 hover:text-surface-700'
+                )}
+              >
+                {p === 'all' ? 'All' : p === 'today' ? 'Today' : p}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* List */}
+        <div className="overflow-y-auto flex-1 divide-y divide-surface-50">
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-16 text-surface-400">
+              <ShoppingCart className="h-8 w-8 opacity-30" />
+              <p className="text-sm">No transactions found</p>
+            </div>
+          ) : (
+            filtered.map(order => {
+              const status  = statusConfig[order.status]  ?? statusConfig.completed
+              const payment = paymentConfig[order.paymentMethod] ?? paymentConfig.card
+              return (
+                <div key={order.id} className="px-6 py-3.5 hover:bg-surface-50/70 transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-bold text-surface-900">{order.orderNumber}</p>
+                        <Badge variant={status.variant} size="sm">{status.label}</Badge>
+                        <span className="text-xs text-surface-400">{payment.icon} {payment.label}</span>
+                      </div>
+                      <p className="text-[11px] text-surface-400 flex items-center gap-1 mt-0.5">
+                        <Clock className="h-3 w-3" />
+                        {formatDateTime(order.createdAt)}
+                        {order.customerName && <span className="ml-1">· {order.customerName}</span>}
+                      </p>
+                      {order.items.length > 0 && (
+                        <p className="text-xs text-surface-500 mt-1 leading-relaxed">
+                          {order.items.map(i => `${i.productName} (${i.quantity})`).join(' · ')}
+                        </p>
+                      )}
+                    </div>
+                    <span className="text-sm font-bold text-surface-900 num-display flex-shrink-0 mt-0.5">
+                      {formatCurrency(order.total)}
+                    </span>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 type Period = 'today' | '7d' | '30d' | '90d'
 
 function getPeriodBounds(period: Period): { start: Date; prevStart: Date } {
@@ -143,6 +281,7 @@ function getPeriodBounds(period: Period): { start: Date; prevStart: Date } {
 
 export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('today')
+  const [showHistory, setShowHistory] = useState(false)
   const { products } = useProducts()
   const { transactions } = useTransactions()
   const { ingredients, lowStockIngredients } = useIngredients()
@@ -279,6 +418,7 @@ export default function DashboardPage() {
   }, [transactions, products])
 
   return (
+    <>
     <div className="flex flex-col h-full overflow-hidden">
       <Header
         title="Dashboard"
@@ -532,13 +672,13 @@ export default function DashboardPage() {
             </div>
             {/* Transaction History button */}
             <div className="px-6 py-4 border-t border-surface-100">
-              <Link
-                href="/dashboard/reports"
+              <button
+                onClick={() => setShowHistory(true)}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-gradient py-2.5 text-sm font-semibold text-white shadow-brand hover:brightness-110 hover:shadow-brand-lg transition-all"
               >
-                <Clock className="h-4 w-4" />
+                <History className="h-4 w-4" />
                 Transaction History
-              </Link>
+              </button>
             </div>
           </div>
 
@@ -701,5 +841,13 @@ export default function DashboardPage() {
 
       </div>
     </div>
+
+    {showHistory && (
+      <TxHistoryModal
+        transactions={transactions}
+        onClose={() => setShowHistory(false)}
+      />
+    )}
+    </>
   )
 }
