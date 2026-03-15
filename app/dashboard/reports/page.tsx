@@ -5,8 +5,10 @@ export const dynamic = 'force-dynamic'
 import { useState, useMemo } from 'react'
 import {
   BarChart3, TrendingUp, Download,
-  DollarSign, ShoppingCart,
+  DollarSign, ShoppingCart, ChevronLeft, ChevronRight,
 } from 'lucide-react'
+
+const TX_PAGE_SIZE = 20
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -65,6 +67,7 @@ function getPeriodStart(period: Period): Date {
 
 export default function ReportsPage() {
   const [period, setPeriod] = useState<Period>('7d')
+  const [txPage, setTxPage] = useState(1)
   const { transactions } = useTransactions()
   const { products } = useProducts()
   const { usageEntries } = useIngredientUsage()
@@ -151,10 +154,14 @@ export default function ReportsPage() {
   // Only completed orders within the selected period
   const filteredTx = useMemo(() => {
     const start = getPeriodStart(period)
-    return transactions.filter(
-      tx => tx.status === 'completed' && new Date(tx.createdAt) >= start
-    )
+    return transactions
+      .filter(tx => tx.status === 'completed' && new Date(tx.createdAt) >= start)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [transactions, period])
+
+  const txTotalPages = Math.max(1, Math.ceil(filteredTx.length / TX_PAGE_SIZE))
+  const txPageSafe   = Math.min(txPage, txTotalPages)
+  const txPageItems  = filteredTx.slice((txPageSafe - 1) * TX_PAGE_SIZE, txPageSafe * TX_PAGE_SIZE)
 
   // ── KPI metrics ─────────────────────────────────────────────────────────
   const totalRevenue = filteredTx.reduce((s, tx) => s + tx.total, 0)
@@ -292,7 +299,7 @@ export default function ReportsPage() {
               {(['today', '7d', '30d', '90d'] as const).map(p => (
                 <button
                   key={p}
-                  onClick={() => setPeriod(p)}
+                  onClick={() => { setPeriod(p); setTxPage(1) }}
                   className={cn(
                     'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
                     period === p
@@ -477,32 +484,77 @@ export default function ReportsPage() {
               No transactions in this period
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-surface-50 bg-surface-50/30">
-                    <th className="px-6 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Order #</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Date / Time</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Customer</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Items</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Payment</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-50">
-                  {filteredTx.map(order => (
-                    <tr key={order.id} className="hover:bg-surface-50/50 transition-colors">
-                      <td className="px-6 py-3 text-sm font-semibold text-surface-900">{order.orderNumber}</td>
-                      <td className="px-4 py-3 text-xs text-surface-500">{formatDateTime(order.createdAt)}</td>
-                      <td className="px-4 py-3 text-sm text-surface-600">{order.customerName ?? 'Walk-in'}</td>
-                      <td className="px-4 py-3 text-sm text-surface-500">{order.items.length}</td>
-                      <td className="px-4 py-3 text-sm text-surface-600 capitalize">{order.paymentMethod}</td>
-                      <td className="px-4 py-3 text-sm font-bold text-surface-900 text-right num-display">{formatCurrency(order.total)}</td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-surface-50 bg-surface-50/30">
+                      <th className="px-6 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Order #</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Date / Time</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Customer</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Items</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">Payment</th>
+                      <th className="px-4 py-2.5 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">Total</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-surface-50">
+                    {txPageItems.map(order => (
+                      <tr key={order.id} className="hover:bg-surface-50/50 transition-colors">
+                        <td className="px-6 py-3 text-sm font-semibold text-surface-900">{order.orderNumber}</td>
+                        <td className="px-4 py-3 text-xs text-surface-500">{formatDateTime(order.createdAt)}</td>
+                        <td className="px-4 py-3 text-sm text-surface-600">{order.customerName ?? 'Walk-in'}</td>
+                        <td className="px-4 py-3 text-sm text-surface-500">{order.items.length}</td>
+                        <td className="px-4 py-3 text-sm text-surface-600 capitalize">{order.paymentMethod}</td>
+                        <td className="px-4 py-3 text-sm font-bold text-surface-900 text-right num-display">{formatCurrency(order.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* Pagination */}
+              <div className="flex items-center justify-between px-6 py-3 border-t border-surface-100">
+                <p className="text-xs text-surface-400">
+                  Showing {(txPageSafe - 1) * TX_PAGE_SIZE + 1}–{Math.min(txPageSafe * TX_PAGE_SIZE, filteredTx.length)} of {filteredTx.length}
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setTxPage(p => Math.max(1, p - 1))}
+                    disabled={txPageSafe === 1}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-surface-200 text-surface-500 hover:bg-surface-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  {Array.from({ length: txTotalPages }, (_, i) => i + 1)
+                    .filter(p => p === 1 || p === txTotalPages || Math.abs(p - txPageSafe) <= 1)
+                    .reduce<(number | '...')[]>((acc, p, i, arr) => {
+                      if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push('...')
+                      acc.push(p)
+                      return acc
+                    }, [])
+                    .map((p, i) => p === '...'
+                      ? <span key={`ellipsis-${i}`} className="px-1 text-xs text-surface-300">…</span>
+                      : <button
+                          key={p}
+                          onClick={() => setTxPage(p as number)}
+                          className={cn(
+                            'h-7 min-w-[28px] px-2 rounded-lg text-xs font-semibold transition-all',
+                            txPageSafe === p
+                              ? 'bg-brand-gradient text-white shadow-sm'
+                              : 'border border-surface-200 text-surface-500 hover:bg-surface-50'
+                          )}
+                        >{p}</button>
+                    )
+                  }
+                  <button
+                    onClick={() => setTxPage(p => Math.min(txTotalPages, p + 1))}
+                    disabled={txPageSafe === txTotalPages}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-surface-200 text-surface-500 hover:bg-surface-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
 
