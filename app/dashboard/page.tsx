@@ -186,7 +186,7 @@ export default function DashboardPage() {
     const { start } = getPeriodBounds(period)
     return transactions
       .filter(tx => tx.status === 'completed' && new Date(tx.createdAt) >= start)
-      .slice(0, 20)
+      .slice(0, 5)
   }, [transactions, period])
 
   const lowStockProducts   = products.filter(p => p.stock <= (p.minStock ?? 5) && p.stock > 0)
@@ -479,43 +479,18 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           {/* Recent Transactions — 2/3 */}
           <div className="xl:col-span-2 bg-white rounded-2xl border border-surface-100 shadow-card">
-            {/* Header + period filter */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100 gap-3 flex-wrap">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
               <div>
                 <h3 className="text-base font-semibold text-surface-900">Recent Transactions</h3>
                 <p className="text-xs text-surface-500 mt-0.5">
-                  {filteredTx.length} sale{filteredTx.length !== 1 ? 's' : ''} in selected period
+                  Latest 5 · {periodLabel} period
                 </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {/* Period toggle */}
-                <div className="flex items-center gap-0.5 rounded-lg border border-surface-200 bg-surface-50 p-0.5">
-                  {(['today', '7d', '30d', '90d'] as const).map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setPeriod(p)}
-                      className={cn(
-                        'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
-                        period === p
-                          ? 'bg-white text-brand-600 shadow-sm'
-                          : 'text-surface-500 hover:text-surface-700'
-                      )}
-                    >
-                      {p === 'today' ? 'Today' : p}
-                    </button>
-                  ))}
-                </div>
-                <Link
-                  href="/dashboard/reports"
-                  className="flex items-center gap-1 text-xs text-brand-600 font-semibold hover:underline whitespace-nowrap"
-                >
-                  View all <ChevronRight className="h-3 w-3" />
-                </Link>
               </div>
             </div>
 
             {/* Transaction rows */}
-            <div className="divide-y divide-surface-50 max-h-[420px] overflow-y-auto">
+            <div className="divide-y divide-surface-50">
               {filteredTx.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-10 text-surface-400">
                   <ShoppingCart className="h-8 w-8 opacity-30" />
@@ -527,7 +502,6 @@ export default function DashboardPage() {
                   const payment = paymentConfig[order.paymentMethod] ?? paymentConfig.card
                   return (
                     <div key={order.id} className="px-6 py-4 hover:bg-surface-50/70 transition-colors">
-                      {/* Top row: ID · time · status · payment · total */}
                       <div className="flex items-start justify-between gap-3 mb-1.5">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -547,7 +521,6 @@ export default function DashboardPage() {
                           </span>
                         </div>
                       </div>
-                      {/* Items row */}
                       <p className="text-xs text-surface-500 leading-relaxed">
                         <span className="font-medium text-surface-400">Items: </span>
                         {order.items.map(i => `${i.productName} (${i.quantity})`).join(' · ')}
@@ -556,6 +529,16 @@ export default function DashboardPage() {
                   )
                 })
               )}
+            </div>
+            {/* Transaction History button */}
+            <div className="px-6 py-4 border-t border-surface-100">
+              <Link
+                href="/dashboard/reports"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-gradient py-2.5 text-sm font-semibold text-white shadow-brand hover:brightness-110 hover:shadow-brand-lg transition-all"
+              >
+                <Clock className="h-4 w-4" />
+                Transaction History
+              </Link>
             </div>
           </div>
 
