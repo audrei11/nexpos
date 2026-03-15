@@ -72,7 +72,12 @@ export function TransactionsProvider({ children }: { children: React.ReactNode }
         if (stored) {
           const parsed: Order[] = JSON.parse(stored)
           if (Array.isArray(parsed) && parsed.length > 0) {
-            loaded = parsed
+            // Auto-remove any leftover seed/fake transactions
+            const cleaned = parsed.filter((o: Order) => !o.id.startsWith('seed-'))
+            if (cleaned.length !== parsed.length) {
+              try { writeUserStorage(ORDERS_BASE, JSON.stringify(cleaned)) } catch {}
+            }
+            loaded = cleaned
           }
         }
       } catch {}
