@@ -5,6 +5,7 @@ import type { Order, OrderItem, PaymentMethod, OrderStatus } from '@/lib/types'
 import { fetchFromSheetsProxy } from '@/lib/sheets'
 import { readUserStorage, writeUserStorage } from '@/lib/storage'
 
+
 interface TransactionsContextValue {
   transactions: Order[]
   addTransaction: (order: Order) => void
